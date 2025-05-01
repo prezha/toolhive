@@ -106,7 +106,7 @@ tasks:
       OPERATOR_DEPLOYMENT: '{{index .MATCH 0 | trimPrefix "-" | default "latest"}}'
     cmds:
       - task: kind-setup
-      - task: kind-ingress-setup
+      # - task: kind-ingress-setup
       - task: operator-install-crds
       - task: operator-deploy-{{.OPERATOR_DEPLOYMENT}}
 
