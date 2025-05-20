@@ -13,6 +13,7 @@ require (
 	github.com/google/go-containerregistry v0.20.3
 	github.com/google/uuid v1.6.0
 	github.com/lmittmann/tint v1.0.7
+	github.com/rs/cors v1.11.1
 	github.com/spf13/viper v1.20.1
 	github.com/stretchr/testify v1.10.0
 	github.com/tailscale/hujson v0.0.0-20250226034555-ec1d1c113d33

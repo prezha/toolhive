@@ -6,15 +6,27 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/rs/cors"
 
 	"github.com/stacklok/toolhive/pkg/versions"
 )
 
 // VersionRouter sets up the version route.
 func VersionRouter() http.Handler {
+	// Create a permissive CORS handler
+	corsHandler := cors.New(cors.Options{
+		AllowedOrigins:   []string{"*"},                                       // Allow all origins
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}, // Allow common HTTP methods
+		AllowedHeaders:   []string{"*"},                                       // Allow all headers
+		AllowCredentials: true,                                                // Allow cookies
+		MaxAge:           300,                                                 // Maximum cache age (in seconds)
+	})
+
 	r := chi.NewRouter()
 	r.Get("/", getVersion)
-	return r
+
+	// Wrap the router with CORS middleware
+	return corsHandler.Handler(r)
 }
 
 type versionResponse struct {
