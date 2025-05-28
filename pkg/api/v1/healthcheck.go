@@ -25,6 +25,12 @@ func HealthcheckRouter() http.Handler {
 	return corsHandler.Handler(r)
 }
 
+//	 getHealthcheck
+//		@Summary		Health check
+//		@Description	Check if the API is healthy
+//		@Tags			system
+//		@Success		204	{string}	string	"No Content"
+//		@Router			/health [get]
 func getHealthcheck(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }

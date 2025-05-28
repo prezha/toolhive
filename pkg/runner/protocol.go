@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stacklok/toolhive/pkg/certs"
 	rt "github.com/stacklok/toolhive/pkg/container/runtime"
 	"github.com/stacklok/toolhive/pkg/container/templates"
 	"github.com/stacklok/toolhive/pkg/logger"
@@ -29,14 +30,6 @@ func HandleProtocolScheme(
 	serverOrImage string,
 	caCertPath string,
 ) (string, error) {
-	// Check if the serverOrImage starts with a protocol scheme
-	if !strings.HasPrefix(serverOrImage, UVXScheme) &&
-		!strings.HasPrefix(serverOrImage, NPXScheme) &&
-		!strings.HasPrefix(serverOrImage, GOScheme) {
-		// No protocol scheme, return the original serverOrImage
-		return serverOrImage, nil
-	}
-
 	var transportType templates.TransportType
 	var packageName string
 
@@ -71,8 +64,14 @@ func HandleProtocolScheme(
 			return "", fmt.Errorf("failed to read CA certificate file: %w", err)
 		}
 
+		// Validate that the file contains a valid PEM certificate
+		if err := certs.ValidateCACertificate(caCertContent); err != nil {
+			return "", fmt.Errorf("invalid CA certificate: %w", err)
+		}
+
 		// Add the CA certificate content to the template data
 		templateData.CACertContent = string(caCertContent)
+		logger.Debugf("Successfully validated and loaded CA certificate")
 	}
 
 	// Get the Dockerfile content
@@ -130,4 +129,11 @@ func HandleProtocolScheme(
 // is a version in the package name, the @ is replaced with a dash.
 func packageNameToImageName(packageName string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(packageName, "/", "-"), "@", "-")
+}
+
+// IsImageProtocolScheme checks if the serverOrImage string contains a protocol scheme (uvx://, npx://, or go://)
+func IsImageProtocolScheme(serverOrImage string) bool {
+	return strings.HasPrefix(serverOrImage, UVXScheme) ||
+		strings.HasPrefix(serverOrImage, NPXScheme) ||
+		strings.HasPrefix(serverOrImage, GOScheme)
 }

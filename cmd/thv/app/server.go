@@ -11,8 +11,10 @@ import (
 )
 
 var (
-	host string
-	port int
+	host       string
+	port       int
+	enableDocs bool
+	socketPath string
 )
 
 var serveCmd = &cobra.Command{
@@ -27,12 +29,23 @@ var serveCmd = &cobra.Command{
 		// Get debug mode flag
 		debugMode, _ := cmd.Flags().GetBool("debug")
 
+		// If socket path is provided, use it; otherwise use host:port
 		address := fmt.Sprintf("%s:%d", host, port)
-		return s.Serve(ctx, address, debugMode)
+		isUnixSocket := false
+		if socketPath != "" {
+			address = socketPath
+			isUnixSocket = true
+		}
+
+		return s.Serve(ctx, address, isUnixSocket, debugMode, enableDocs)
 	},
 }
 
 func init() {
 	serveCmd.Flags().StringVar(&host, "host", "127.0.0.1", "Host address to bind the server to")
 	serveCmd.Flags().IntVar(&port, "port", 8080, "Port to bind the server to")
+	serveCmd.Flags().BoolVar(&enableDocs, "openapi", false,
+		"Enable OpenAPI documentation endpoints (/api/openapi.json and /api/doc)")
+	serveCmd.Flags().StringVar(&socketPath, "socket", "", "UNIX socket path to bind the "+
+		"server to (overrides host and port if provided)")
 }

@@ -24,6 +24,11 @@ spec:
         imagePullPolicy: Never
         args:
         - --leader-elect
+        env:
+        - name: TOOLHIVE_RUNNER_IMAGE
+          value: ko://github.com/stacklok/toolhive/cmd/thv
+        - name: TOOLHIVE_PROXY_HOST
+          value: 0.0.0.0
         resources:
           limits:
             cpu: 500m

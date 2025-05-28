@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"syscall"
 
 	"github.com/adrg/xdg"
 
@@ -69,7 +68,7 @@ func (d *defaultManager) GetContainer(ctx context.Context, name string) (*rt.Con
 
 func (d *defaultManager) ListContainers(ctx context.Context, listAll bool) ([]rt.ContainerInfo, error) {
 	// List containers
-	containers, err := d.runtime.ListContainers(ctx)
+	containers, err := d.runtime.ListWorkloads(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list containers: %v", err)
 	}
@@ -97,20 +96,31 @@ func (d *defaultManager) DeleteContainer(ctx context.Context, name string, force
 	isRunning := isContainerRunning(container)
 	containerLabels := container.Labels
 
-	// Check if the container is running and force is not specified
-	if isRunning && !forceDelete {
-		return fmt.Errorf("container %s is running. Use -f to force remove", name)
+	// Check if the container is running
+	if isRunning {
+		if !forceDelete {
+			return fmt.Errorf("container %s is running. Stop the container or use -f to force remove", name)
+		}
+		// Stop the container if it's running
+		if err := d.stopContainer(ctx, containerID, name); err != nil {
+			logger.Warnf("Warning: Failed to stop container: %v", err)
+		}
 	}
 
 	// Remove the container
 	logger.Infof("Removing container %s...", name)
-	if err := d.runtime.RemoveContainer(ctx, containerID); err != nil {
+	if err := d.runtime.RemoveWorkload(ctx, containerID); err != nil {
 		return fmt.Errorf("failed to remove container: %v", err)
 	}
 
 	// Get the base name from the container labels
 	baseName := labels.GetContainerBaseName(containerLabels)
 	if baseName != "" {
+		// Clean up temporary permission profile before deleting saved state
+		if err := d.cleanupTempPermissionProfile(ctx, baseName); err != nil {
+			logger.Warnf("Warning: Failed to cleanup temporary permission profile: %v", err)
+		}
+
 		// Delete the saved state if it exists
 		if err := runner.DeleteSavedConfig(ctx, baseName); err != nil {
 			logger.Warnf("Warning: Failed to delete saved state: %v", err)
@@ -140,7 +150,7 @@ func (d *defaultManager) StopContainer(ctx context.Context, name string) error {
 	}
 
 	// Check if the container is running
-	running, err := d.runtime.IsContainerRunning(ctx, containerID)
+	running, err := d.runtime.IsWorkloadRunning(ctx, containerID)
 	if err != nil {
 		return fmt.Errorf("failed to check if container is running: %v", err)
 	}
@@ -306,9 +316,7 @@ func (*defaultManager) RunContainerDetached(runConfig *runner.RunConfig) error {
 
 	// Detach the process from the terminal
 	detachedCmd.Stdin = nil
-	detachedCmd.SysProcAttr = &syscall.SysProcAttr{
-		Setsid: true, // Create a new session
-	}
+	detachedCmd.SysProcAttr = getSysProcAttr()
 
 	// Start the detached process
 	if err := detachedCmd.Start(); err != nil {
@@ -356,7 +364,7 @@ func (d *defaultManager) RestartContainer(ctx context.Context, name string) erro
 	// If the container is running but the proxy is not, stop the container first
 	if container.ID != "" && running { // && !proxyRunning was previously here but is implied by previous if statement.
 		logger.Infof("Container %s is running but proxy is not. Stopping container...", name)
-		if err := d.runtime.StopContainer(ctx, containerID); err != nil {
+		if err := d.runtime.StopWorkload(ctx, containerID); err != nil {
 			return fmt.Errorf("failed to stop container: %v", err)
 		}
 		logger.Infof("Container %s stopped", name)
@@ -385,7 +393,7 @@ func (d *defaultManager) findContainerID(ctx context.Context, name string) (stri
 
 func (d *defaultManager) findContainerByName(ctx context.Context, name string) (*rt.ContainerInfo, error) {
 	// List containers to find the one with the given name
-	containers, err := d.runtime.ListContainers(ctx)
+	containers, err := d.runtime.ListWorkloads(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list containers: %v", err)
 	}
@@ -414,7 +422,7 @@ func (d *defaultManager) findContainerByName(ctx context.Context, name string) (
 
 // getContainerBaseName gets the base container name from the container labels
 func (d *defaultManager) getContainerBaseName(ctx context.Context, containerID string) (string, error) {
-	containers, err := d.runtime.ListContainers(ctx)
+	containers, err := d.runtime.ListWorkloads(ctx)
 	if err != nil {
 		return "", fmt.Errorf("failed to list containers: %v", err)
 	}
@@ -431,7 +439,7 @@ func (d *defaultManager) getContainerBaseName(ctx context.Context, containerID s
 // stopContainer stops the container
 func (d *defaultManager) stopContainer(ctx context.Context, containerID, containerName string) error {
 	logger.Infof("Stopping container %s...", containerName)
-	if err := d.runtime.StopContainer(ctx, containerID); err != nil {
+	if err := d.runtime.StopWorkload(ctx, containerID); err != nil {
 		return fmt.Errorf("failed to stop container: %w", err)
 	}
 
@@ -462,7 +470,7 @@ func removeClientConfigurations(containerName string) error {
 		logger.Infof("Removing MCP server from client configuration: %s", c.Path)
 
 		if err := c.ConfigUpdater.Remove(containerName); err != nil {
-			logger.Warnf("Warning: Failed to remove MCP server from client configurationn %s: %v", c.Path, err)
+			logger.Warnf("Warning: Failed to remove MCP server from client configuration %s: %v", c.Path, err)
 			continue
 		}
 
@@ -499,4 +507,24 @@ func needSecretsPassword(secretOptions []string) bool {
 	// Ignore err - if the flag is not set, it's not needed.
 	providerType, _ := config.GetConfig().Secrets.GetProviderType()
 	return providerType == secrets.EncryptedType
+}
+
+// cleanupTempPermissionProfile cleans up temporary permission profile files for a given base name
+func (*defaultManager) cleanupTempPermissionProfile(ctx context.Context, baseName string) error {
+	// Try to load the saved configuration to get the permission profile path
+	r, err := runner.LoadState(ctx, baseName)
+	if err != nil {
+		// If we can't load the state, there's nothing to clean up
+		logger.Debugf("Could not load state for %s, skipping permission profile cleanup: %v", baseName, err)
+		return nil
+	}
+
+	// Clean up the temporary permission profile if it exists
+	if r.Config.PermissionProfileNameOrPath != "" {
+		if err := CleanupTempPermissionProfile(r.Config.PermissionProfileNameOrPath); err != nil {
+			return fmt.Errorf("failed to cleanup temporary permission profile: %v", err)
+		}
+	}
+
+	return nil
 }

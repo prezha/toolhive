@@ -1,5 +1,4 @@
 # yaml-language-server: $schema=https://goreleaser.com/static/schema.json
-# vim: set ts=2 sw=2 tw=0 fo=cnqoj
 project_name: toolhive
 version: 2
 # This section defines the build matrix.
@@ -17,7 +16,7 @@ builds:
       - "-X github.com/stacklok/toolhive/pkg/versions.BuildDate={{ .Date }}"
     goos:
       - linux
-#      - windows
+      - windows
       - darwin
     goarch:
       - amd64

@@ -24,8 +24,10 @@ const lockTimeout = 1 * time.Second
 
 // Config represents the configuration of the application.
 type Config struct {
-	Secrets Secrets `yaml:"secrets"`
-	Clients Clients `yaml:"clients"`
+	Secrets           Secrets `yaml:"secrets"`
+	Clients           Clients `yaml:"clients"`
+	RegistryUrl       string  `yaml:"registry_url"`
+	CACertificatePath string  `yaml:"ca_certificate_path,omitempty"`
 }
 
 // Secrets contains the settings for secrets management.
@@ -93,10 +95,11 @@ func LoadOrCreateConfig() (*Config, error) {
 			Clients: Clients{
 				AutoDiscovery: true,
 			},
+			RegistryUrl: "",
 		}
 
 		// Prompt user explicitly for auto discovery behaviour.
-		logger.Info("Would you like to enable auto discovery and configuraion of MCP clients? (y/n) [n]: ")
+		logger.Info("Would you like to enable auto discovery and configuration of MCP clients? (y/n) [n]: ")
 		reader := bufio.NewReader(os.Stdin)
 		input, err := reader.ReadString('\n')
 		if err != nil {
