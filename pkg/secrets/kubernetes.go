@@ -14,7 +14,7 @@ import (
 
 // ErrKubernetesReadOnly indicates that the Kubernetes secrets manager is read-only.
 // It is returned by operations which attempt to change values in Kubernetes secrets.
-var ErrKubernetesReadOnly = fmt.Errorf("Kubernetes secrets manager is read-only, write operations are not supported")
+var ErrKubernetesReadOnly = fmt.Errorf("kubernetes secrets manager is read-only, write operations are not supported")
 
 // KubernetesManager manages secrets in Kubernetes.
 type KubernetesManager struct {

@@ -30,6 +30,8 @@ import (
 	"github.com/stacklok/toolhive/pkg/logger"
 )
 
+const toolhiveSecretsProviderEnv = "TOOLHIVE_SECRETS_PROVIDER"
+
 // MCPServerReconciler reconciles a MCPServer object
 type MCPServerReconciler struct {
 	client.Client
@@ -441,7 +443,7 @@ func (r *MCPServerReconciler) deploymentForMCPServer(m *mcpv1alpha1.MCPServer) *
 
 	// Add TOOLHIVE_SECRETS_PROVIDER=kubernetes for Kubernetes deployments
 	env = append(env, corev1.EnvVar{
-		Name:  "TOOLHIVE_SECRETS_PROVIDER",
+		Name:  toolhiveSecretsProviderEnv,
 		Value: "kubernetes",
 	})
 

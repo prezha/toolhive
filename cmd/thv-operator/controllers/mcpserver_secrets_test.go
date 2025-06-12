@@ -88,7 +88,7 @@ func TestDeploymentForMCPServerWithSecrets(t *testing.T) {
 	envVars := container.Env
 	foundSecretsProvider := false
 	for _, env := range envVars {
-		if env.Name == "TOOLHIVE_SECRETS_PROVIDER" {
+		if env.Name == toolhiveSecretsProviderEnv {
 			foundSecretsProvider = true
 			assert.Equal(t, "kubernetes", env.Value, "TOOLHIVE_SECRETS_PROVIDER should be set to kubernetes")
 			break
@@ -149,7 +149,7 @@ func TestDeploymentForMCPServerWithoutSecrets(t *testing.T) {
 	envVars := container.Env
 	foundSecretsProvider := false
 	for _, env := range envVars {
-		if env.Name == "TOOLHIVE_SECRETS_PROVIDER" {
+		if env.Name == toolhiveSecretsProviderEnv {
 			foundSecretsProvider = true
 			assert.Equal(t, "kubernetes", env.Value, "TOOLHIVE_SECRETS_PROVIDER should be set to kubernetes")
 			break

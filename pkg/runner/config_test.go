@@ -21,6 +21,8 @@ import (
 	"github.com/stacklok/toolhive/pkg/transport/types"
 )
 
+const mockRuntimeName = "mock"
+
 // mockRuntime implements the Runtime interface for testing
 type mockRuntime struct{}
 
@@ -85,11 +87,11 @@ func (*mockRuntime) BuildImage(_ context.Context, _, _ string) error {
 }
 
 func (*mockRuntime) Name() string {
-	return "mock"
+	return mockRuntimeName
 }
 
 func (*mockRuntime) String() string {
-	return "mock"
+	return mockRuntimeName
 }
 
 func TestNewRunConfig(t *testing.T) {
@@ -597,7 +599,7 @@ func (*mockSecretManager) Capabilities() secrets.ProviderCapabilities {
 }
 
 func (*mockSecretManager) Type() string {
-	return "mock"
+	return mockRuntimeName
 }
 
 // mockKubernetesSecretManager mimics the kubernetes provider (read-only capabilities)
@@ -605,7 +607,7 @@ type mockKubernetesSecretManager struct {
 	secrets map[string]string
 }
 
-func (m *mockKubernetesSecretManager) GetSecret(_ context.Context, name string) (string, error) {
+func (*mockKubernetesSecretManager) GetSecret(_ context.Context, name string) (string, error) {
 	// Parse <secret-name>/<key> format like the real kubernetes provider
 	parts := strings.SplitN(name, "/", 2)
 	if len(parts) != 2 {
@@ -621,11 +623,11 @@ func (m *mockKubernetesSecretManager) GetSecret(_ context.Context, name string) 
 	return fmt.Sprintf("__K8S_SECRET_REF__%s__%s__", secretName, key), nil
 }
 
-func (m *mockKubernetesSecretManager) SetSecret(_ context.Context, name, value string) error {
+func (*mockKubernetesSecretManager) SetSecret(_ context.Context, _, _ string) error {
 	return fmt.Errorf("kubernetes provider does not support writing secrets")
 }
 
-func (m *mockKubernetesSecretManager) DeleteSecret(_ context.Context, name string) error {
+func (*mockKubernetesSecretManager) DeleteSecret(_ context.Context, _ string) error {
 	return fmt.Errorf("kubernetes provider does not support deleting secrets")
 }
 

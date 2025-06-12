@@ -30,11 +30,11 @@ func setupTestKubernetesClient(secrets ...*corev1.Secret) client.Client {
 		Build()
 }
 
-func createTestSecret(name, namespace string, data map[string][]byte) *corev1.Secret {
+func createTestSecret(name string, data map[string][]byte) *corev1.Secret {
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: namespace,
+			Namespace: "test-namespace",
 		},
 		Data: data,
 	}
@@ -112,7 +112,7 @@ func TestKubernetesManager_GetSecret(t *testing.T) {
 
 			var secrets []*corev1.Secret
 			if tt.secretName != "" && tt.secretData != nil {
-				secrets = append(secrets, createTestSecret(tt.secretName, "test-namespace", tt.secretData))
+				secrets = append(secrets, createTestSecret(tt.secretName, tt.secretData))
 			}
 
 			client := setupTestKubernetesClient(secrets...)
@@ -137,9 +137,9 @@ func TestKubernetesManager_GetSecret(t *testing.T) {
 func TestKubernetesManager_SetSecret(t *testing.T) {
 	t.Parallel()
 
-	client := setupTestKubernetesClient()
+	k8sClient := setupTestKubernetesClient()
 	manager := &KubernetesManager{
-		client:    client,
+		client:    k8sClient,
 		namespace: "test-namespace",
 	}
 
@@ -156,9 +156,9 @@ func TestKubernetesManager_SetSecret(t *testing.T) {
 func TestKubernetesManager_DeleteSecret(t *testing.T) {
 	t.Parallel()
 
-	client := setupTestKubernetesClient()
+	k8sClient := setupTestKubernetesClient()
 	manager := &KubernetesManager{
-		client:    client,
+		client:    k8sClient,
 		namespace: "test-namespace",
 	}
 
@@ -190,7 +190,7 @@ func TestKubernetesManager_ListSecrets(t *testing.T) {
 		{
 			name: "single secret with one key",
 			secrets: []*corev1.Secret{
-				createTestSecret("secret1", "test-namespace", map[string][]byte{
+				createTestSecret("secret1", map[string][]byte{
 					"key1": []byte("value1"),
 				}),
 			},
@@ -205,7 +205,7 @@ func TestKubernetesManager_ListSecrets(t *testing.T) {
 		{
 			name: "single secret with multiple keys",
 			secrets: []*corev1.Secret{
-				createTestSecret("secret1", "test-namespace", map[string][]byte{
+				createTestSecret("secret1", map[string][]byte{
 					"key1": []byte("value1"),
 					"key2": []byte("value2"),
 				}),
@@ -225,10 +225,10 @@ func TestKubernetesManager_ListSecrets(t *testing.T) {
 		{
 			name: "multiple secrets",
 			secrets: []*corev1.Secret{
-				createTestSecret("secret1", "test-namespace", map[string][]byte{
+				createTestSecret("secret1", map[string][]byte{
 					"key1": []byte("value1"),
 				}),
-				createTestSecret("secret2", "test-namespace", map[string][]byte{
+				createTestSecret("secret2", map[string][]byte{
 					"key2": []byte("value2"),
 				}),
 			},
@@ -273,9 +273,9 @@ func TestKubernetesManager_ListSecrets(t *testing.T) {
 func TestKubernetesManager_Cleanup(t *testing.T) {
 	t.Parallel()
 
-	client := setupTestKubernetesClient()
+	k8sClient := setupTestKubernetesClient()
 	manager := &KubernetesManager{
-		client:    client,
+		client:    k8sClient,
 		namespace: "test-namespace",
 	}
 
@@ -286,9 +286,9 @@ func TestKubernetesManager_Cleanup(t *testing.T) {
 func TestKubernetesManager_Capabilities(t *testing.T) {
 	t.Parallel()
 
-	client := setupTestKubernetesClient()
+	k8sClient := setupTestKubernetesClient()
 	manager := &KubernetesManager{
-		client:    client,
+		client:    k8sClient,
 		namespace: "test-namespace",
 	}
 

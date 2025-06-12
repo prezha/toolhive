@@ -93,8 +93,17 @@ func (t *SSETransport) Port() int {
 }
 
 // Setup prepares the transport for use.
-func (t *SSETransport) Setup(ctx context.Context, runtime rt.Runtime, containerName string, image string, cmdArgs []string,
-	envVars, labels map[string]string, permissionProfile *permissions.Profile, k8sPodTemplatePatch string, containerOptions *rt.DeployWorkloadOptions) error {
+func (t *SSETransport) Setup(
+	ctx context.Context,
+	runtime rt.Runtime,
+	containerName string,
+	image string,
+	cmdArgs []string,
+	envVars, labels map[string]string,
+	permissionProfile *permissions.Profile,
+	k8sPodTemplatePatch string,
+	containerOptions *rt.DeployWorkloadOptions,
+) error {
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
 
