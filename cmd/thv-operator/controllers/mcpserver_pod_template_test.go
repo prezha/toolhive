@@ -160,13 +160,13 @@ func TestDeploymentForMCPServerSecretsProviderEnv(t *testing.T) {
 	deployment := r.deploymentForMCPServer(mcpServer)
 	require.NotNil(t, deployment, "Deployment should not be nil")
 
-	// Check that the TOOLHIVE_SECRETS_PROVIDER environment variable is set to "none"
+	// Check that the TOOLHIVE_SECRETS_PROVIDER environment variable is set to "kubernetes"
 	container := deployment.Spec.Template.Spec.Containers[0]
 	secretsProviderEnvFound := false
 	for _, env := range container.Env {
 		if env.Name == "TOOLHIVE_SECRETS_PROVIDER" {
 			secretsProviderEnvFound = true
-			assert.Equal(t, "none", env.Value, "TOOLHIVE_SECRETS_PROVIDER should be set to 'none'")
+			assert.Equal(t, "kubernetes", env.Value, "TOOLHIVE_SECRETS_PROVIDER should be set to 'kubernetes'")
 			break
 		}
 	}
@@ -244,7 +244,7 @@ func TestDeploymentForMCPServerWithEnvVars(t *testing.T) {
 	for _, env := range container.Env {
 		if env.Name == "TOOLHIVE_SECRETS_PROVIDER" {
 			secretsProviderEnvFound = true
-			assert.Equal(t, "none", env.Value, "TOOLHIVE_SECRETS_PROVIDER should be set to 'none'")
+			assert.Equal(t, "kubernetes", env.Value, "TOOLHIVE_SECRETS_PROVIDER should be set to 'kubernetes'")
 			break
 		}
 	}

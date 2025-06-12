@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -595,6 +596,65 @@ func (*mockSecretManager) Capabilities() secrets.ProviderCapabilities {
 	}
 }
 
+func (*mockSecretManager) Type() string {
+	return "mock"
+}
+
+// mockKubernetesSecretManager mimics the kubernetes provider (read-only capabilities)
+type mockKubernetesSecretManager struct {
+	secrets map[string]string
+}
+
+func (m *mockKubernetesSecretManager) GetSecret(_ context.Context, name string) (string, error) {
+	// Parse <secret-name>/<key> format like the real kubernetes provider
+	parts := strings.SplitN(name, "/", 2)
+	if len(parts) != 2 {
+		return "", fmt.Errorf("invalid secret format: %s, expected <secret-name>/<key>", name)
+	}
+
+	secretName, key := parts[0], parts[1]
+	if secretName == "" || key == "" {
+		return "", fmt.Errorf("invalid secret format: %s, secret name and key cannot be empty", name)
+	}
+
+	// Return placeholder like the real kubernetes provider
+	return fmt.Sprintf("__K8S_SECRET_REF__%s__%s__", secretName, key), nil
+}
+
+func (m *mockKubernetesSecretManager) SetSecret(_ context.Context, name, value string) error {
+	return fmt.Errorf("kubernetes provider does not support writing secrets")
+}
+
+func (m *mockKubernetesSecretManager) DeleteSecret(_ context.Context, name string) error {
+	return fmt.Errorf("kubernetes provider does not support deleting secrets")
+}
+
+func (m *mockKubernetesSecretManager) ListSecrets(_ context.Context) ([]secrets.SecretDescription, error) {
+	keys := make([]secrets.SecretDescription, 0, len(m.secrets))
+	for k := range m.secrets {
+		keys = append(keys, secrets.SecretDescription{Key: k})
+	}
+	return keys, nil
+}
+
+func (*mockKubernetesSecretManager) Cleanup() error {
+	return nil
+}
+
+func (*mockKubernetesSecretManager) Capabilities() secrets.ProviderCapabilities {
+	return secrets.ProviderCapabilities{
+		CanRead:    true,
+		CanWrite:   false,
+		CanDelete:  false,
+		CanList:    true,
+		CanCleanup: false,
+	}
+}
+
+func (*mockKubernetesSecretManager) Type() string {
+	return "kubernetes"
+}
+
 func TestRunConfig_WithSecrets(t *testing.T) {
 	t.Parallel()
 	testCases := []struct {
@@ -683,6 +743,67 @@ func TestRunConfig_WithSecrets(t *testing.T) {
 		},
 	}
 
+	// Add test for kubernetes provider (read-only capabilities)
+	kubernetesTestCases := []struct {
+		name        string
+		config      *RunConfig
+		secrets     []string
+		mockSecrets map[string]string
+		expectError bool
+		expected    map[string]string
+	}{
+		{
+			name:        "Kubernetes provider populates KubernetesSecrets field",
+			config:      &RunConfig{EnvVars: map[string]string{"EXISTING": "value"}},
+			secrets:     []string{"secret1/token,target=ENV_VAR1", "secret2/key,target=ENV_VAR2"},
+			mockSecrets: map[string]string{"secret1/token": "__K8S_SECRET_REF__secret1__token__", "secret2/key": "__K8S_SECRET_REF__secret2__key__"},
+			expectError: false,
+			expected: map[string]string{
+				"EXISTING": "value",
+			},
+		},
+	}
+
+	// Test kubernetes provider behavior
+	for _, tc := range kubernetesTestCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			// Create a mock secret manager with kubernetes provider capabilities (read-only)
+			secretManager := &mockKubernetesSecretManager{
+				secrets: tc.mockSecrets,
+			}
+
+			// Set the secrets in the config
+			tc.config.Secrets = tc.secrets
+
+			// Call the function
+			result, err := tc.config.WithSecrets(t.Context(), secretManager, "kubernetes")
+
+			if tc.expectError {
+				assert.Error(t, err, "WithSecrets should return an error")
+			} else {
+				assert.NoError(t, err, "WithSecrets should not return an error")
+				assert.Equal(t, tc.config, result, "WithSecrets should return the same config instance")
+
+				// Check that environment variables match expected (placeholders should be added)
+				assert.Equal(t, tc.expected, tc.config.EnvVars, "Environment variables should match expected")
+
+				// For kubernetes provider test, also verify KubernetesSecrets field is populated
+				if tc.name == "Kubernetes provider populates KubernetesSecrets field" {
+					assert.NotNil(t, tc.config.ContainerOptions, "ContainerOptions should be initialized")
+					assert.Len(t, tc.config.ContainerOptions.KubernetesSecrets, 2, "Should have 2 kubernetes secrets")
+
+					// Verify the secrets are correctly parsed
+					expectedSecrets := []rt.KubernetesSecret{
+						{Name: "secret1", Key: "token", TargetEnvName: "ENV_VAR1"},
+						{Name: "secret2", Key: "key", TargetEnvName: "ENV_VAR2"},
+					}
+					assert.ElementsMatch(t, expectedSecrets, tc.config.ContainerOptions.KubernetesSecrets, "KubernetesSecrets should match expected")
+				}
+			}
+		})
+	}
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -695,7 +816,7 @@ func TestRunConfig_WithSecrets(t *testing.T) {
 			tc.config.Secrets = tc.secrets
 
 			// Call the function
-			result, err := tc.config.WithSecrets(t.Context(), secretManager)
+			result, err := tc.config.WithSecrets(t.Context(), secretManager, "none")
 
 			if tc.expectError {
 				assert.Error(t, err, "WithSecrets should return an error")

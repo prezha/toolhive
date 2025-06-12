@@ -64,6 +64,11 @@ var defaultRBACRules = []rbacv1.PolicyRule{
 		Resources: []string{"pods/attach"},
 		Verbs:     []string{"create", "get"},
 	},
+	{
+		APIGroups: []string{""},
+		Resources: []string{"secrets"},
+		Verbs:     []string{"get", "list"},
+	},
 }
 
 var ctxLogger = log.FromContext(context.Background())
@@ -408,9 +413,13 @@ func (r *MCPServerReconciler) deploymentForMCPServer(m *mcpv1alpha1.MCPServer) *
 		args = append(args, oidcArgs...)
 	}
 
-	// Add secrets
+	// Add secrets as --secrets flags for the kubernetes secrets provider
 	for _, secret := range m.Spec.Secrets {
-		args = append(args, formatSecretArg(secret))
+		secretArg := fmt.Sprintf("%s/%s", secret.Name, secret.Key)
+		if secret.TargetEnvName != "" {
+			secretArg = fmt.Sprintf("%s,target=%s", secretArg, secret.TargetEnvName)
+		}
+		args = append(args, fmt.Sprintf("--secret=%s", secretArg))
 	}
 
 	// Add environment variables as --env flags for the MCP server
@@ -430,11 +439,21 @@ func (r *MCPServerReconciler) deploymentForMCPServer(m *mcpv1alpha1.MCPServer) *
 	// Prepare container env vars for the proxy container
 	env := []corev1.EnvVar{}
 
-	// Add TOOLHIVE_SECRETS_PROVIDER=none for Kubernetes deployments
+	// Add TOOLHIVE_SECRETS_PROVIDER=kubernetes for Kubernetes deployments
 	env = append(env, corev1.EnvVar{
 		Name:  "TOOLHIVE_SECRETS_PROVIDER",
-		Value: "none",
+		Value: "kubernetes",
 	})
+
+	// Add namespace for the kubernetes secrets provider
+	env = append(env, corev1.EnvVar{
+		Name:  "TOOLHIVE_NAMESPACE",
+		Value: m.Namespace,
+	})
+
+	// Secrets are now handled by the kubernetes secrets provider via --secrets flags
+	// The provider will create the proper valueFrom.secretKeyRef environment variables
+	// in the MCP container (not the proxy container)
 
 	// Prepare container volume mounts
 	volumeMounts := []corev1.VolumeMount{}

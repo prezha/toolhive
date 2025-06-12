@@ -2,7 +2,6 @@ apiVersion: toolhive.stacklok.dev/v1alpha1
 kind: MCPServer
 metadata:
   name: github
-  namespace: toolhive-system
 spec:
   image: ghcr.io/github/github-mcp-server
   transport: stdio
@@ -15,16 +14,10 @@ spec:
       value: https://api.github.com
     - name: LOG_LEVEL
       value: info
-  podTemplateSpec:
-    spec:
-      containers:
-      - name: mcp
-        env:
-        - name: GITHUB_PERSONAL_ACCESS_TOKEN
-          valueFrom:
-            secretKeyRef:
-              name: github-token
-              key: token
+  secrets:
+    - name: github-token
+      key: token
+      targetEnvName: GITHUB_PERSONAL_ACCESS_TOKEN
   resources:
     limits:
       cpu: "200m"

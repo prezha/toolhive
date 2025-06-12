@@ -36,6 +36,9 @@ const (
 
 	// NoneType represents the none secret provider.
 	NoneType ProviderType = "none"
+
+	// KubernetesType represents the Kubernetes secret provider.
+	KubernetesType ProviderType = "kubernetes"
 )
 
 // ErrUnknownManagerType is returned when an invalid value for ProviderType is specified.
@@ -60,6 +63,8 @@ func CreateSecretProvider(managerType ProviderType) (Provider, error) {
 		return NewOnePasswordManager()
 	case NoneType:
 		return NewNoneManager()
+	case KubernetesType:
+		return NewKubernetesManager()
 	default:
 		return nil, ErrUnknownManagerType
 	}

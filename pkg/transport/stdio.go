@@ -92,6 +92,7 @@ func (t *StdioTransport) Setup(
 	envVars, labels map[string]string,
 	permissionProfile *permissions.Profile,
 	k8sPodTemplatePatch string,
+	containerOptions *rt.DeployWorkloadOptions,
 ) error {
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
@@ -102,8 +103,10 @@ func (t *StdioTransport) Setup(
 	// Add transport-specific environment variables
 	envVars["MCP_TRANSPORT"] = "stdio"
 
-	// Create workload options
-	containerOptions := rt.NewDeployWorkloadOptions()
+	// Use provided container options or create new ones if nil
+	if containerOptions == nil {
+		containerOptions = rt.NewDeployWorkloadOptions()
+	}
 	containerOptions.AttachStdio = true
 	containerOptions.K8sPodTemplatePatch = k8sPodTemplatePatch
 

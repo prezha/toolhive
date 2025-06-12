@@ -145,7 +145,7 @@ func (r *Runner) Run(ctx context.Context) error {
 		}
 
 		// Process secrets
-		if _, err = r.Config.WithSecrets(ctx, secretManager); err != nil {
+		if _, err = r.Config.WithSecrets(ctx, secretManager, string(providerType)); err != nil {
 			return err
 		}
 	}
@@ -154,7 +154,7 @@ func (r *Runner) Run(ctx context.Context) error {
 	logger.Infof("Setting up %s transport...", r.Config.Transport)
 	if err := transportHandler.Setup(
 		ctx, r.Config.Runtime, r.Config.ContainerName, r.Config.Image, r.Config.CmdArgs,
-		r.Config.EnvVars, r.Config.ContainerLabels, r.Config.PermissionProfile, r.Config.K8sPodTemplatePatch,
+		r.Config.EnvVars, r.Config.ContainerLabels, r.Config.PermissionProfile, r.Config.K8sPodTemplatePatch, r.Config.ContainerOptions,
 	); err != nil {
 		return fmt.Errorf("failed to set up transport: %v", err)
 	}

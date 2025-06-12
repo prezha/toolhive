@@ -1105,6 +1105,29 @@ func configureContainer(
 	}
 }
 
+// addKubernetesSecrets adds Kubernetes secret environment variables to the container
+func addKubernetesSecrets(container *corev1apply.ContainerApplyConfiguration, secrets []runtime.KubernetesSecret) {
+	if len(secrets) == 0 {
+		return
+	}
+
+	// Create environment variables with valueFrom.secretKeyRef for each secret
+	var secretEnvVars []*corev1apply.EnvVarApplyConfiguration
+	for _, secret := range secrets {
+		secretEnvVar := corev1apply.EnvVar().
+			WithName(secret.TargetEnvName).
+			WithValueFrom(corev1apply.EnvVarSource().
+				WithSecretKeyRef(corev1apply.SecretKeySelector().
+					WithName(secret.Name).
+					WithKey(secret.Key)))
+
+		secretEnvVars = append(secretEnvVars, secretEnvVar)
+	}
+
+	// Add the secret environment variables to the container
+	container.WithEnv(secretEnvVars...)
+}
+
 // configureMCPContainer configures the MCP container in the pod template
 func configureMCPContainer(
 	podTemplateSpec *corev1apply.PodTemplateSpecApplyConfiguration,
@@ -1134,6 +1157,11 @@ func configureMCPContainer(
 			}
 		}
 
+		// Add Kubernetes secrets if present
+		if options != nil {
+			addKubernetesSecrets(mcpContainer, options.KubernetesSecrets)
+		}
+
 		// Add the fully configured container to the pod template
 		podTemplateSpec.Spec.WithContainers(mcpContainer)
 	} else {
@@ -1147,6 +1175,11 @@ func configureMCPContainer(
 			if err != nil {
 				return err
 			}
+		}
+
+		// Add Kubernetes secrets if present
+		if options != nil {
+			addKubernetesSecrets(mcpContainer, options.KubernetesSecrets)
 		}
 	}
 

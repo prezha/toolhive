@@ -194,6 +194,21 @@ type DeployWorkloadOptions struct {
 	// SSEHeadlessServiceName is the name of the Kubernetes service to use for the workload
 	// Only applicable when using Kubernetes runtime and SSE transport
 	SSEHeadlessServiceName string
+
+	// KubernetesSecrets is a list of Kubernetes secrets to mount as environment variables
+	// Only applicable when using Kubernetes runtime with kubernetes secrets provider
+	// Format: [{Name: "secret-name", Key: "key", TargetEnvName: "ENV_VAR"}]
+	KubernetesSecrets []KubernetesSecret
+}
+
+// KubernetesSecret represents a Kubernetes secret to be mounted as an environment variable
+type KubernetesSecret struct {
+	// Name is the name of the Kubernetes secret
+	Name string
+	// Key is the key within the secret
+	Key string
+	// TargetEnvName is the name of the environment variable to create
+	TargetEnvName string
 }
 
 // PortBinding represents a host port binding

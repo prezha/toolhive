@@ -52,9 +52,10 @@ func SetSecretsProvider(provider secrets.ProviderType) error {
 	case secrets.EncryptedType:
 	case secrets.OnePasswordType:
 	case secrets.NoneType:
+	case secrets.KubernetesType:
 		// Valid provider type
 	default:
-		return fmt.Errorf("invalid secrets provider type: %s (valid types: encrypted, 1password, none)", provider)
+		return fmt.Errorf("invalid secrets provider type: %s (valid types: encrypted, 1password, none, kubernetes)", provider)
 	}
 
 	// Update the secrets provider type

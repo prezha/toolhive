@@ -94,7 +94,7 @@ func (t *SSETransport) Port() int {
 
 // Setup prepares the transport for use.
 func (t *SSETransport) Setup(ctx context.Context, runtime rt.Runtime, containerName string, image string, cmdArgs []string,
-	envVars, labels map[string]string, permissionProfile *permissions.Profile, k8sPodTemplatePatch string) error {
+	envVars, labels map[string]string, permissionProfile *permissions.Profile, k8sPodTemplatePatch string, containerOptions *rt.DeployWorkloadOptions) error {
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
 
@@ -109,8 +109,10 @@ func (t *SSETransport) Setup(ctx context.Context, runtime rt.Runtime, containerN
 	envVars["FASTMCP_PORT"] = fmt.Sprintf("%d", t.targetPort)
 	envVars["MCP_HOST"] = t.targetHost
 
-	// Create workload options
-	containerOptions := rt.NewDeployWorkloadOptions()
+	// Use provided container options or create new ones if nil
+	if containerOptions == nil {
+		containerOptions = rt.NewDeployWorkloadOptions()
+	}
 	containerOptions.K8sPodTemplatePatch = k8sPodTemplatePatch
 
 	// For SSE transport, expose the target port in the container

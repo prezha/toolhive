@@ -104,6 +104,9 @@ type RunConfig struct {
 
 	// Runtime is the container runtime to use (not serialized)
 	Runtime rt.Runtime `json:"-" yaml:"-"`
+
+	// ContainerOptions contains deployment options for the container (not serialized)
+	ContainerOptions *rt.DeployWorkloadOptions `json:"-" yaml:"-"`
 }
 
 // WriteJSON serializes the RunConfig to JSON and writes it to the provided writer
@@ -319,9 +322,16 @@ func (c *RunConfig) WithEnvironmentVariables(envVarStrings []string) (*RunConfig
 }
 
 // WithSecrets processes secrets and adds them to environment variables
-func (c *RunConfig) WithSecrets(ctx context.Context, secretManager secrets.Provider) (*RunConfig, error) {
+func (c *RunConfig) WithSecrets(ctx context.Context, secretManager secrets.Provider, providerType string) (*RunConfig, error) {
 	if len(c.Secrets) == 0 {
 		return c, nil // No secrets to process
+	}
+
+	// Check if this is the kubernetes provider
+	if providerType == "kubernetes" {
+		// For kubernetes provider, parse secrets and add them to container options
+		// instead of processing them through the normal flow
+		return c.withKubernetesSecrets()
 	}
 
 	secretVariables, err := environment.ParseSecretParameters(ctx, c.Secrets, secretManager)
@@ -337,6 +347,49 @@ func (c *RunConfig) WithSecrets(ctx context.Context, secretManager secrets.Provi
 	// Add secret variables to environment variables
 	for key, value := range secretVariables {
 		c.EnvVars[key] = value
+	}
+
+	return c, nil
+}
+
+// withKubernetesSecrets processes secrets for the kubernetes provider by parsing them
+// and adding them to the container options for native secret mounting
+func (c *RunConfig) withKubernetesSecrets() (*RunConfig, error) {
+	// Initialize container options if nil
+	if c.ContainerOptions == nil {
+		c.ContainerOptions = rt.NewDeployWorkloadOptions()
+	}
+
+	// Parse secrets and add them to KubernetesSecrets
+	for _, secretParam := range c.Secrets {
+		// Parse the secret parameter: "secret-name/key,target=ENV_VAR"
+		parts := strings.Split(secretParam, ",target=")
+		if len(parts) != 2 {
+			return c, fmt.Errorf("invalid secret format: %s, expected format: <secret-name>/<key>,target=<env-var>", secretParam)
+		}
+
+		secretRef := parts[0]
+		targetEnvName := parts[1]
+
+		// Parse secret reference: "secret-name/key"
+		secretParts := strings.SplitN(secretRef, "/", 2)
+		if len(secretParts) != 2 {
+			return c, fmt.Errorf("invalid secret reference: %s, expected format: <secret-name>/<key>", secretRef)
+		}
+
+		secretName := secretParts[0]
+		secretKey := secretParts[1]
+
+		if secretName == "" || secretKey == "" || targetEnvName == "" {
+			return c, fmt.Errorf("invalid secret format: %s, secret name, key, and target cannot be empty", secretParam)
+		}
+
+		// Add to KubernetesSecrets
+		c.ContainerOptions.KubernetesSecrets = append(c.ContainerOptions.KubernetesSecrets, rt.KubernetesSecret{
+			Name:          secretName,
+			Key:           secretKey,
+			TargetEnvName: targetEnvName,
+		})
 	}
 
 	return c, nil
