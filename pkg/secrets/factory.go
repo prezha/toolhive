@@ -97,17 +97,10 @@ func CreateSecretProvider(managerType ProviderType) (Provider, error) {
 }
 
 // GetSecretsPassword returns the password to use for encrypting and decrypting secrets.
-// It will attempt to retrieve it from the environment variable TOOLHIVE_SECRETS_PASSWORD.
-// If the environment variable is not set, it will attempt to retrieve from the OS keyring.
-// If neither is available, it will fail with an error.
+// It will attempt to retrieve from the OS keyring.
+// If not available, it will fail with an error.
 func GetSecretsPassword() ([]byte, error) {
-	// First, attempt to load the password from the environment variable.
-	password := []byte(os.Getenv(PasswordEnvVar))
-	if len(password) > 0 {
-		return password, nil
-	}
-
-	// If not present, attempt to load the password from the OS keyring.
+	// Attempt to load the password from the OS keyring.
 	keyringSecret, err := keyring.Get(keyringService, keyringService)
 	if err == nil {
 		return []byte(keyringSecret), nil
@@ -126,7 +119,7 @@ func GetSecretsPassword() ([]byte, error) {
 		}
 
 		// Prompt for password during setup
-		password, err = readPasswordStdin()
+		password, err := readPasswordStdin()
 		if err != nil {
 			return nil, fmt.Errorf("failed to read password: %w", err)
 		}
