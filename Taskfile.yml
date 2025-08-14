@@ -188,3 +188,94 @@ tasks:
   build-all-images:
     desc: Build all container images (main app and egress proxy)
     deps: [build-image, build-egress-proxy]
+
+  # Vault Agent Injector Integration Tasks
+  kind-with-vault:
+    desc: Setup Kind cluster with ToolHive operator and Vault Agent Injector
+    cmds:
+      - task: kind-with-toolhive-operator-local
+      - task: vault-install
+      - task: vault-configure
+      - echo "Vault Agent Injector ready"
+      - echo "Login token dev-only-token"
+      - echo "Run 'task vault-test' to verify setup"
+
+  vault-install:
+    desc: Install Vault with Agent Injector
+    cmds:
+      - helm repo add hashicorp https://helm.releases.hashicorp.com || true
+      - helm repo update
+      - kubectl create namespace vault --kubeconfig kconfig.yaml || true
+      - |
+        helm install vault hashicorp/vault \
+          --namespace vault \
+          --kubeconfig kconfig.yaml \
+          --set "server.dev.enabled=true" \
+          --set "server.dev.devRootToken=dev-only-token" \
+          --set "injector.enabled=true"
+      - kubectl wait --for=condition=ready pod vault-0 --namespace vault --timeout=300s --kubeconfig kconfig.yaml
+      - echo "Vault installed successfully"
+
+  vault-configure:
+    desc: Configure Vault authentication and test secrets
+    vars:
+      VAULT_POD:
+        sh: kubectl get pods --namespace vault -l app.kubernetes.io/name=vault -o jsonpath="{.items[0].metadata.name}" --kubeconfig kconfig.yaml
+    cmds:
+      - echo "Configuring Vault with pod {{.VAULT_POD}}"
+      # Enable Kubernetes auth
+      - kubectl exec --namespace vault {{.VAULT_POD}} --kubeconfig kconfig.yaml -- vault auth enable kubernetes || true
+      # Configure Kubernetes auth
+      - |
+        kubectl exec --namespace vault {{.VAULT_POD}} --kubeconfig kconfig.yaml -- \
+          vault write auth/kubernetes/config \
+            kubernetes_host="https://kubernetes.default.svc:443" \
+            kubernetes_ca_cert=@/var/run/secrets/kubernetes.io/serviceaccount/ca.crt \
+            token_reviewer_jwt=@/var/run/secrets/kubernetes.io/serviceaccount/token
+      # Enable KV secrets engine
+      - kubectl exec --namespace vault {{.VAULT_POD}} --kubeconfig kconfig.yaml -- vault secrets enable -path=workload-secrets kv-v2 || true
+      # Create Vault policy
+      - |
+        kubectl exec --namespace vault {{.VAULT_POD}} --kubeconfig kconfig.yaml -- \
+          sh -c 'vault policy write toolhive-workload-secrets - << EOF
+        path "auth/token/lookup-self" { capabilities = ["read"] }
+        path "auth/token/renew-self" { capabilities = ["update"] }
+        path "workload-secrets/data/github-mcp/*" { capabilities = ["read"] }
+        EOF'
+      # Create Kubernetes auth role
+      - |
+        kubectl exec --namespace vault {{.VAULT_POD}} --kubeconfig kconfig.yaml -- \
+          vault write auth/kubernetes/role/toolhive-mcp-workloads \
+            bound_service_account_names="*-proxy-runner,mcp-*" \
+            bound_service_account_namespaces="toolhive-system" \
+            policies="toolhive-workload-secrets" \
+            audience="https://kubernetes.default.svc.cluster.local" \
+            ttl="1h" \
+            max_ttl="4h"
+      # Create test secrets
+      - |
+        kubectl exec --namespace vault {{.VAULT_POD}} --kubeconfig kconfig.yaml -- \
+          vault kv put workload-secrets/github-mcp/config \
+            token="ghp_test_token_12345" \
+            organization="test-org"
+      - echo "Vault configured with test secrets"
+
+
+  vault-test:
+    desc: Test Vault Agent Injector with sample pod
+    cmds:
+      - kubectl create serviceaccount mcp-test --namespace toolhive-system --kubeconfig kconfig.yaml || true
+      - kubectl apply -f test/vault/simple-test-pod.yaml --kubeconfig kconfig.yaml
+      - kubectl wait --for=condition=ready pod vault-simple-test-pod --namespace toolhive-system --timeout=300s --kubeconfig kconfig.yaml
+      - echo "Testing Vault secret injection..."
+      - kubectl exec vault-simple-test-pod --namespace toolhive-system --kubeconfig kconfig.yaml -c test-app -- cat /vault/secrets/github-config
+      - kubectl delete pod vault-simple-test-pod --namespace toolhive-system --kubeconfig kconfig.yaml
+      - echo "Vault Agent Injector test successful!"
+
+  vault-destroy:
+    desc: Clean up Vault installation
+    cmds:
+      - helm uninstall vault --namespace vault --kubeconfig kconfig.yaml || true
+      - kubectl delete namespace vault --kubeconfig kconfig.yaml || true
+      - rm -rf test/vault/
+      - echo "Vault cleanup complete"
