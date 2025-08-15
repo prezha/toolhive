@@ -241,6 +241,274 @@ func TestMCPServerPodTemplateSpecBuilder_SecretEnvVarNaming(t *testing.T) {
 	}
 }
 
+func TestMCPServerPodTemplateSpecBuilder_WithVaultAnnotations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		vaultAgent  *mcpv1alpha1.VaultAgentConfig
+		secrets     []mcpv1alpha1.SecretRef
+		expected    map[string]string // expected annotations
+		expectNil   bool
+		description string
+	}{
+		{
+			name:        "nil_vault_agent_returns_builder_unchanged",
+			vaultAgent:  nil,
+			secrets:     []mcpv1alpha1.SecretRef{},
+			expectNil:   true,
+			description: "Should return unchanged builder when VaultAgent is nil",
+		},
+		{
+			name: "disabled_vault_agent_returns_builder_unchanged",
+			vaultAgent: &mcpv1alpha1.VaultAgentConfig{
+				Enabled: false,
+				Auth: mcpv1alpha1.VaultAgentAuth{
+					Role: "test-role",
+				},
+			},
+			secrets:     []mcpv1alpha1.SecretRef{},
+			expectNil:   true,
+			description: "Should return unchanged builder when VaultAgent is disabled",
+		},
+		{
+			name: "enabled_vault_agent_no_vault_secrets_returns_unchanged",
+			vaultAgent: &mcpv1alpha1.VaultAgentConfig{
+				Enabled: true,
+				Auth: mcpv1alpha1.VaultAgentAuth{
+					Role: "my-vault-role",
+				},
+			},
+			secrets: []mcpv1alpha1.SecretRef{
+				{Type: "kubernetes", Name: "k8s-secret", Key: "api-key"},
+			},
+			expectNil:   true,
+			description: "Should return unchanged builder when no vault-type secrets are present",
+		},
+		{
+			name: "basic_vault_agent_with_vault_secrets",
+			vaultAgent: &mcpv1alpha1.VaultAgentConfig{
+				Enabled: true,
+				Auth: mcpv1alpha1.VaultAgentAuth{
+					Role: "my-vault-role",
+				},
+			},
+			secrets: []mcpv1alpha1.SecretRef{
+				{
+					Type: "vault",
+					Name: "db-creds",
+					Path: "secret/data/db",
+				},
+			},
+			expected: map[string]string{
+				"vault.hashicorp.com/agent-inject":                  "true",
+				"vault.hashicorp.com/role":                         "my-vault-role",
+				"vault.hashicorp.com/auth-path":                    "auth/kubernetes",
+				"vault.hashicorp.com/agent-inject-secret-db-creds": "secret/data/db",
+			},
+			description: "Should generate basic Vault Agent annotations for vault-type secrets",
+		},
+		{
+			name: "vault_agent_with_custom_auth_path",
+			vaultAgent: &mcpv1alpha1.VaultAgentConfig{
+				Enabled: true,
+				Auth: mcpv1alpha1.VaultAgentAuth{
+					Role:     "my-vault-role",
+					AuthPath: "auth/custom",
+				},
+			},
+			secrets: []mcpv1alpha1.SecretRef{
+				{Type: "vault", Name: "api-key", Path: "secret/data/api"},
+			},
+			expected: map[string]string{
+				"vault.hashicorp.com/agent-inject":                  "true",
+				"vault.hashicorp.com/role":                         "my-vault-role",
+				"vault.hashicorp.com/auth-path":                    "auth/custom",
+				"vault.hashicorp.com/agent-inject-secret-api-key":  "secret/data/api",
+			},
+			description: "Should use custom auth path when provided",
+		},
+		{
+			name: "vault_agent_with_custom_vault_address",
+			vaultAgent: &mcpv1alpha1.VaultAgentConfig{
+				Enabled: true,
+				Auth: mcpv1alpha1.VaultAgentAuth{
+					Role: "my-vault-role",
+				},
+				Config: &mcpv1alpha1.VaultAgentConfigSettings{
+					VaultAddress: "https://vault.example.com:8200",
+				},
+			},
+			secrets: []mcpv1alpha1.SecretRef{
+				{Type: "vault", Name: "config", Path: "secret/data/config"},
+			},
+			expected: map[string]string{
+				"vault.hashicorp.com/agent-inject":                "true",
+				"vault.hashicorp.com/role":                       "my-vault-role",
+				"vault.hashicorp.com/auth-path":                  "auth/kubernetes",
+				"vault.hashicorp.com/service":                    "https://vault.example.com:8200",
+				"vault.hashicorp.com/agent-inject-secret-config": "secret/data/config",
+			},
+			description: "Should include vault address when configured",
+		},
+		{
+			name: "vault_agent_with_secrets_and_templates",
+			vaultAgent: &mcpv1alpha1.VaultAgentConfig{
+				Enabled: true,
+				Auth: mcpv1alpha1.VaultAgentAuth{
+					Role: "my-vault-role",
+				},
+			},
+			secrets: []mcpv1alpha1.SecretRef{
+				{
+					Type: "vault",
+					Name: "db-creds",
+					Path: "secret/data/db",
+					Template: `{{- with secret "secret/data/db" -}}
+export DB_PASSWORD="{{ .Data.data.password }}"
+{{- end -}}`,
+				},
+				{
+					Type: "kubernetes", // Should be ignored for vault annotations
+					Name: "k8s-secret",
+					Key:  "api-key",
+				},
+				{
+					Type: "vault",
+					Name: "api-config",
+					Path: "secret/data/api",
+					Template: `{{- with secret "secret/data/api" -}}
+export API_TOKEN="{{ .Data.data.token }}"
+{{- end -}}`,
+				},
+			},
+			expected: map[string]string{
+				"vault.hashicorp.com/agent-inject":                      "true",
+				"vault.hashicorp.com/role":                             "my-vault-role",
+				"vault.hashicorp.com/auth-path":                        "auth/kubernetes",
+				"vault.hashicorp.com/agent-inject-secret-db-creds":     "secret/data/db",
+				"vault.hashicorp.com/agent-inject-template-db-creds": `{{- with secret "secret/data/db" -}}
+export DB_PASSWORD="{{ .Data.data.password }}"
+{{- end -}}`,
+				"vault.hashicorp.com/agent-inject-secret-api-config":     "secret/data/api",
+				"vault.hashicorp.com/agent-inject-template-api-config": `{{- with secret "secret/data/api" -}}
+export API_TOKEN="{{ .Data.data.token }}"
+{{- end -}}`,
+			},
+			description: "Should generate secret and template annotations for vault-type secrets only",
+		},
+		{
+			name: "vault_agent_with_empty_template",
+			vaultAgent: &mcpv1alpha1.VaultAgentConfig{
+				Enabled: true,
+				Auth: mcpv1alpha1.VaultAgentAuth{
+					Role: "my-vault-role",
+				},
+			},
+			secrets: []mcpv1alpha1.SecretRef{
+				{
+					Type:     "vault",
+					Name:     "simple-secret",
+					Path:     "secret/data/simple",
+					Template: "", // Empty template should not generate template annotation
+				},
+			},
+			expected: map[string]string{
+				"vault.hashicorp.com/agent-inject":                      "true",
+				"vault.hashicorp.com/role":                             "my-vault-role",
+				"vault.hashicorp.com/auth-path":                        "auth/kubernetes",
+				"vault.hashicorp.com/agent-inject-secret-simple-secret": "secret/data/simple",
+			},
+			description: "Should not generate template annotation when template is empty",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			result := NewMCPServerPodTemplateSpecBuilder(nil).
+				WithVaultAnnotations(tt.vaultAgent, tt.secrets).
+				Build()
+
+			if tt.expectNil {
+				assert.Nil(t, result, "Expected nil result for case: %s", tt.description)
+				return
+			}
+
+			require.NotNil(t, result, "Expected non-nil result for case: %s", tt.description)
+			require.NotNil(t, result.ObjectMeta.Annotations, "Expected annotations for case: %s", tt.description)
+
+			// Verify all expected annotations are present
+			for key, expectedValue := range tt.expected {
+				actualValue, exists := result.ObjectMeta.Annotations[key]
+				assert.True(t, exists, "Expected annotation %s to exist for case: %s", key, tt.description)
+				assert.Equal(t, expectedValue, actualValue, "Annotation %s value mismatch for case: %s", key, tt.description)
+			}
+
+			// Verify no unexpected template annotations for secrets without templates
+			for _, secret := range tt.secrets {
+				if secret.Type == "vault" && secret.Template == "" {
+					templateKey := "vault.hashicorp.com/agent-inject-template-" + secret.Name
+					_, exists := result.ObjectMeta.Annotations[templateKey]
+					assert.False(t, exists, "Did not expect template annotation %s for secret without template", templateKey)
+				}
+			}
+		})
+	}
+}
+
+func TestMCPServerPodTemplateSpecBuilder_CombinedSecretsAndVault(t *testing.T) {
+	t.Parallel()
+
+	// Test combining Kubernetes secrets (WithSecrets) and Vault secrets (WithVaultAnnotations)
+	serviceAccount := "test-sa"
+	kubernetesSecrets := []mcpv1alpha1.SecretRef{
+		{Type: "kubernetes", Name: "k8s-secret-1", Key: "API_KEY"},
+		{Type: "kubernetes", Name: "k8s-secret-2", Key: "DB_PASSWORD", TargetEnvName: "DATABASE_PASSWORD"},
+	}
+	vaultAgent := &mcpv1alpha1.VaultAgentConfig{
+		Enabled: true,
+		Auth: mcpv1alpha1.VaultAgentAuth{
+			Role: "test-role",
+		},
+	}
+	vaultSecrets := []mcpv1alpha1.SecretRef{
+		{Type: "vault", Name: "vault-config", Path: "secret/data/config"},
+		{Type: "kubernetes", Name: "mixed-k8s", Key: "MIXED_KEY"}, // Should be ignored by WithVaultAnnotations
+	}
+
+	result := NewMCPServerPodTemplateSpecBuilder(nil).
+		WithServiceAccount(&serviceAccount).
+		WithSecrets(kubernetesSecrets).
+		WithVaultAnnotations(vaultAgent, vaultSecrets).
+		Build()
+
+	require.NotNil(t, result)
+
+	// Check service account
+	assert.Equal(t, "test-sa", result.Spec.ServiceAccountName)
+
+	// Check Kubernetes secret env vars in MCP container
+	mcpContainer := findMCPContainer(result.Spec.Containers)
+	require.NotNil(t, mcpContainer)
+	assert.Len(t, mcpContainer.Env, 2) // 2 kubernetes secrets
+
+	// Verify env vars
+	envVarNames := make([]string, len(mcpContainer.Env))
+	for i, env := range mcpContainer.Env {
+		envVarNames[i] = env.Name
+	}
+	assert.Contains(t, envVarNames, "API_KEY")
+	assert.Contains(t, envVarNames, "DATABASE_PASSWORD")
+
+	// Check Vault Agent annotations
+	annotations := result.ObjectMeta.Annotations
+	require.NotNil(t, annotations)
+	assert.Equal(t, "true", annotations["vault.hashicorp.com/agent-inject"])
+	assert.Equal(t, "test-role", annotations["vault.hashicorp.com/role"])
+	assert.Equal(t, "secret/data/config", annotations["vault.hashicorp.com/agent-inject-secret-vault-config"])
+}
+
 func TestMCPServerPodTemplateSpecBuilder_IsEmpty(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -272,6 +540,43 @@ func TestMCPServerPodTemplateSpecBuilder_IsEmpty(t *testing.T) {
 				return NewMCPServerPodTemplateSpecBuilder(nil).WithSecrets([]mcpv1alpha1.SecretRef{
 					{Name: "secret1", Key: "key1"},
 				})
+			},
+			expectedEmpty:  false,
+			expectedResult: true,
+		},
+		{
+			name: "with_vault_secrets_only_annotations",
+			setupBuilder: func() *MCPServerPodTemplateSpecBuilder {
+				vaultAgent := &mcpv1alpha1.VaultAgentConfig{
+					Enabled: true,
+					Auth:    mcpv1alpha1.VaultAgentAuth{Role: "test-role"},
+				}
+				secrets := []mcpv1alpha1.SecretRef{
+					{Type: "vault", Name: "vault-secret", Path: "secret/data/test"},
+				}
+				return NewMCPServerPodTemplateSpecBuilder(nil).WithVaultAnnotations(vaultAgent, secrets)
+			},
+			expectedEmpty:  false,
+			expectedResult: true,
+		},
+		{
+			name: "with_both_secrets_and_vault",
+			setupBuilder: func() *MCPServerPodTemplateSpecBuilder {
+				sa := "test-sa"
+				vaultAgent := &mcpv1alpha1.VaultAgentConfig{
+					Enabled: true,
+					Auth:    mcpv1alpha1.VaultAgentAuth{Role: "test-role"},
+				}
+				k8sSecrets := []mcpv1alpha1.SecretRef{
+					{Type: "kubernetes", Name: "k8s-secret", Key: "key1"},
+				}
+				vaultSecrets := []mcpv1alpha1.SecretRef{
+					{Type: "vault", Name: "vault-secret", Path: "secret/data/test"},
+				}
+				return NewMCPServerPodTemplateSpecBuilder(nil).
+					WithServiceAccount(&sa).
+					WithSecrets(k8sSecrets).
+					WithVaultAnnotations(vaultAgent, vaultSecrets)
 			},
 			expectedEmpty:  false,
 			expectedResult: true,

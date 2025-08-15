@@ -417,11 +417,16 @@ func (r *MCPServerReconciler) deploymentForMCPServer(m *mcpv1alpha1.MCPServer) *
 	}
 
 	// Generate pod template patch for secrets and merge with user-provided patch
-
-	finalPodTemplateSpec := NewMCPServerPodTemplateSpecBuilder(m.Spec.PodTemplateSpec).
+	builder := NewMCPServerPodTemplateSpecBuilder(m.Spec.PodTemplateSpec).
 		WithServiceAccount(m.Spec.ServiceAccount).
-		WithSecrets(m.Spec.Secrets).
-		Build()
+		WithSecrets(m.Spec.Secrets)
+	
+	// Add Vault secrets directory if VaultAgent is configured
+	if m.Spec.VaultAgent != nil {
+		builder = builder.WithVaultAnnotations(m.Spec.VaultAgent, m.Spec.Secrets)
+	}
+	
+	finalPodTemplateSpec := builder.Build()
 	// Add pod template patch if we have one
 	if finalPodTemplateSpec != nil {
 		podTemplatePatch, err := json.Marshal(finalPodTemplateSpec)
@@ -430,6 +435,11 @@ func (r *MCPServerReconciler) deploymentForMCPServer(m *mcpv1alpha1.MCPServer) *
 		} else {
 			args = append(args, fmt.Sprintf("--k8s-pod-patch=%s", string(podTemplatePatch)))
 		}
+	}
+
+	// Add Vault secrets directory if VaultAgent is configured
+	if m.Spec.VaultAgent != nil && m.Spec.VaultAgent.Enabled && hasVaultSecrets(m.Spec.Secrets) {
+		args = append(args, "--env-file-dir=/vault/secrets")
 	}
 
 	// Add permission profile args
@@ -614,7 +624,8 @@ func (r *MCPServerReconciler) deploymentForMCPServer(m *mcpv1alpha1.MCPServer) *
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: ls, // Keep original labels for pod template
+					Labels:      ls,                                       // Keep original labels for pod template
+					Annotations: extractAnnotations(finalPodTemplateSpec), // Add Vault Agent annotations
 				},
 				Spec: corev1.PodSpec{
 					ServiceAccountName: proxyRunnerServiceAccountName(m.Name),
@@ -699,6 +710,14 @@ func ensureRequiredEnvVars(env []corev1.EnvVar) []corev1.EnvVar {
 		})
 	}
 	return env
+}
+
+// extractAnnotations safely extracts annotations from a PodTemplateSpec
+func extractAnnotations(podTemplateSpec *corev1.PodTemplateSpec) map[string]string {
+	if podTemplateSpec == nil || podTemplateSpec.ObjectMeta.Annotations == nil {
+		return nil
+	}
+	return podTemplateSpec.ObjectMeta.Annotations
 }
 
 func createServiceName(mcpServerName string) string {
@@ -962,10 +981,16 @@ func deploymentNeedsUpdate(deployment *appsv1.Deployment, mcpServer *mcpv1alpha1
 		}
 
 		// Check if the pod template spec has changed (including secrets)
-		expectedPodTemplateSpec := NewMCPServerPodTemplateSpecBuilder(mcpServer.Spec.PodTemplateSpec).
+		builder := NewMCPServerPodTemplateSpecBuilder(mcpServer.Spec.PodTemplateSpec).
 			WithServiceAccount(mcpServer.Spec.ServiceAccount).
-			WithSecrets(mcpServer.Spec.Secrets).
-			Build()
+			WithSecrets(mcpServer.Spec.Secrets)
+		
+		// Add Vault secrets directory if VaultAgent is configured
+		if mcpServer.Spec.VaultAgent != nil {
+			builder = builder.WithVaultAnnotations(mcpServer.Spec.VaultAgent, mcpServer.Spec.Secrets)
+		}
+		
+		expectedPodTemplateSpec := builder.Build()
 
 		// Find the current pod template patch in the container args
 		var currentPodTemplatePatch string
