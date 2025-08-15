@@ -8402,18 +8402,33 @@ spec:
                   description: SecretRef is a reference to a secret
                   properties:
                     key:
-                      description: Key is the key in the secret itself
+                      description: Key is the key in the secret itself (used for kubernetes
+                        type)
                       type: string
                     name:
                       description: Name is the name of the secret
+                      type: string
+                    path:
+                      description: Path is the Vault secret path (only used when Type
+                        is "vault")
                       type: string
                     targetEnvName:
                       description: |-
                         TargetEnvName is the environment variable to be used when setting up the secret in the MCP server
                         If left unspecified, it defaults to the key
                       type: string
+                    template:
+                      description: Template is the Vault Agent template for rendering
+                        the secret (only used when Type is "vault")
+                      type: string
+                    type:
+                      default: kubernetes
+                      description: Type is the type of secret (kubernetes or vault)
+                      enum:
+                      - kubernetes
+                      - vault
+                      type: string
                   required:
-                  - key
                   - name
                   type: object
                 type: array
@@ -8438,6 +8453,46 @@ spec:
                 - streamable-http
                 - sse
                 type: string
+              vaultAgent:
+                description: VaultAgent defines Vault Agent configuration for the
+                  MCP server
+                properties:
+                  auth:
+                    description: |-
+                      Auth configures the authentication method for Vault Agent
+                      This field is required when Enabled is true
+                    properties:
+                      authPath:
+                        default: auth/kubernetes
+                        description: |-
+                          AuthPath configures the authentication path
+                          Defaults to "auth/kubernetes" if not specified
+                        type: string
+                      role:
+                        description: |-
+                          Role specifies the Vault role for Kubernetes authentication
+                          This corresponds to vault.hashicorp.com/role annotation
+                        type: string
+                    required:
+                    - role
+                    type: object
+                  config:
+                    description: Config defines additional Vault Agent configuration
+                    properties:
+                      vaultAddress:
+                        description: |-
+                          VaultAddress is the Vault server address
+                          If not specified, uses the global injector default
+                        type: string
+                    type: object
+                  enabled:
+                    default: false
+                    description: Enabled controls whether Vault Agent injection is
+                      enabled
+                    type: boolean
+                required:
+                - auth
+                type: object
               volumes:
                 description: Volumes are volumes to mount in the MCP server container
                 items:

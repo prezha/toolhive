@@ -74,6 +74,10 @@ type MCPServerSpec struct {
 	// ToolsFilter is the filter on tools applied to the MCP server
 	// +optional
 	ToolsFilter []string `json:"tools,omitempty"`
+
+	// VaultAgent defines Vault Agent configuration for the MCP server
+	// +optional
+	VaultAgent *VaultAgentConfig `json:"vaultAgent,omitempty"`
 }
 
 // ResourceOverrides defines overrides for annotations and labels on created resources
@@ -164,18 +168,32 @@ type ResourceList struct {
 
 // SecretRef is a reference to a secret
 type SecretRef struct {
+	// Type is the type of secret (kubernetes or vault)
+	// +kubebuilder:validation:Enum=kubernetes;vault
+	// +kubebuilder:default=kubernetes
+	// +optional
+	Type string `json:"type,omitempty"`
+
 	// Name is the name of the secret
 	// +kubebuilder:validation:Required
 	Name string `json:"name"`
 
-	// Key is the key in the secret itself
-	// +kubebuilder:validation:Required
-	Key string `json:"key"`
+	// Key is the key in the secret itself (used for kubernetes type)
+	// +optional
+	Key string `json:"key,omitempty"`
 
 	// TargetEnvName is the environment variable to be used when setting up the secret in the MCP server
 	// If left unspecified, it defaults to the key
 	// +optional
 	TargetEnvName string `json:"targetEnvName,omitempty"`
+
+	// Path is the Vault secret path (only used when Type is "vault")
+	// +optional
+	Path string `json:"path,omitempty"`
+
+	// Template is the Vault Agent template for rendering the secret (only used when Type is "vault")
+	// +optional
+	Template string `json:"template,omitempty"`
 }
 
 // Permission profile types
@@ -206,6 +224,15 @@ const (
 
 	// AuthzConfigTypeInline is the type for inline authorization configuration
 	AuthzConfigTypeInline = "inline"
+)
+
+// Secret types
+const (
+	// SecretTypeKubernetes is the type for Kubernetes secrets
+	SecretTypeKubernetes = "kubernetes"
+
+	// SecretTypeVault is the type for Vault secrets
+	SecretTypeVault = "vault"
 )
 
 // PermissionProfileRef defines a reference to a permission profile
@@ -428,6 +455,44 @@ type InlineAuthzConfig struct {
 	// +kubebuilder:default="[]"
 	// +optional
 	EntitiesJSON string `json:"entitiesJson,omitempty"`
+}
+
+// VaultAgentConfig defines the Vault Agent configuration
+type VaultAgentConfig struct {
+	// Enabled controls whether Vault Agent injection is enabled
+	// +kubebuilder:default=false
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// Auth configures the authentication method for Vault Agent
+	// This field is required when Enabled is true
+	Auth VaultAgentAuth `json:"auth"`
+
+	// Config defines additional Vault Agent configuration
+	// +optional
+	Config *VaultAgentConfigSettings `json:"config,omitempty"`
+}
+
+// VaultAgentAuth defines Vault authentication settings
+type VaultAgentAuth struct {
+	// Role specifies the Vault role for Kubernetes authentication
+	// This corresponds to vault.hashicorp.com/role annotation
+	// +kubebuilder:validation:Required
+	Role string `json:"role"`
+
+	// AuthPath configures the authentication path
+	// Defaults to "auth/kubernetes" if not specified
+	// +kubebuilder:default="auth/kubernetes"
+	// +optional
+	AuthPath string `json:"authPath,omitempty"`
+}
+
+// VaultAgentConfigSettings defines additional Vault Agent settings
+type VaultAgentConfigSettings struct {
+	// VaultAddress is the Vault server address
+	// If not specified, uses the global injector default
+	// +optional
+	VaultAddress string `json:"vaultAddress,omitempty"`
 }
 
 // MCPServerStatus defines the observed state of MCPServer
