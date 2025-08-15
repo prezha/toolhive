@@ -82,6 +82,30 @@ const (
 	authzLabelValueInline = "inline"
 )
 
+// Vault Agent Injector annotation constants
+const (
+	// vaultAgentInjectAnnotation enables/disables Vault Agent injection (required: set to "true")
+	vaultAgentInjectAnnotation = "vault.hashicorp.com/agent-inject"
+
+	// vaultAgentRoleAnnotation specifies the Vault role for Kubernetes authentication (required)
+	vaultAgentRoleAnnotation = "vault.hashicorp.com/role"
+
+	// vaultAgentAuthPathAnnotation overrides the default Kubernetes auth path
+	vaultAgentAuthPathAnnotation = "vault.hashicorp.com/auth-path"
+
+	// vaultAgentServiceAnnotation overrides the default Vault server address for the agent
+	vaultAgentServiceAnnotation = "vault.hashicorp.com/service"
+
+	// vaultAgentSecretAnnotationPrefix defines secrets to inject; append unique name (e.g., "db-creds")
+	vaultAgentSecretAnnotationPrefix = "vault.hashicorp.com/agent-inject-secret-"
+
+	// vaultAgentTemplateAnnotationPrefix defines custom Consul templates; must match secret suffix
+	vaultAgentTemplateAnnotationPrefix = "vault.hashicorp.com/agent-inject-template-"
+
+	// vaultDefaultAuthPath is the standard Kubernetes auth method path in Vault
+	vaultDefaultAuthPath = "auth/kubernetes"
+)
+
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 //
@@ -399,7 +423,7 @@ func (r *MCPServerReconciler) deploymentForMCPServer(m *mcpv1alpha1.MCPServer) *
 	}
 
 	// Generate pod template patch for secrets and merge with user-provided patch
-	finalPodTemplateSpec := generateAndMergePodTemplateSpecs(m.Spec.Secrets, m.Spec.PodTemplateSpec)
+	finalPodTemplateSpec := generateAndMergePodTemplateSpecs(m.Spec.Secrets, m.Spec.VaultAgent, m.Spec.PodTemplateSpec)
 
 	// Add pod template patch if we have one
 	if finalPodTemplateSpec != nil {
@@ -918,7 +942,7 @@ func deploymentNeedsUpdate(deployment *appsv1.Deployment, mcpServer *mcpv1alpha1
 		}
 
 		// Check if the pod template spec has changed (including secrets)
-		expectedPodTemplateSpec := generateAndMergePodTemplateSpecs(mcpServer.Spec.Secrets, mcpServer.Spec.PodTemplateSpec)
+		expectedPodTemplateSpec := generateAndMergePodTemplateSpecs(mcpServer.Spec.Secrets, mcpServer.Spec.VaultAgent, mcpServer.Spec.PodTemplateSpec)
 
 		// Find the current pod template patch in the container args
 		var currentPodTemplatePatch string
@@ -1524,7 +1548,52 @@ func generateSecretsPodTemplatePatch(secrets []mcpv1alpha1.SecretRef) *corev1.Po
 	}
 }
 
+// generateVaultAgentPodTemplatePatch generates a podTemplateSpec patch for Vault Agent annotations
+func generateVaultAgentPodTemplatePatch(vaultAgent *mcpv1alpha1.VaultAgentConfig, secrets []mcpv1alpha1.SecretRef) *corev1.PodTemplateSpec {
+	if vaultAgent == nil || !vaultAgent.Enabled {
+		return nil
+	}
+
+	annotations := make(map[string]string)
+
+	// Required Vault Agent annotations
+	annotations[vaultAgentInjectAnnotation] = "true"
+	annotations[vaultAgentRoleAnnotation] = vaultAgent.Auth.Role
+
+	// Optional auth path (defaults to "auth/kubernetes" in the CRD)
+	authPath := vaultAgent.Auth.AuthPath
+	if authPath == "" {
+		authPath = vaultDefaultAuthPath
+	}
+	annotations[vaultAgentAuthPathAnnotation] = authPath
+
+	// Optional Vault address
+	if vaultAgent.Config != nil && vaultAgent.Config.VaultAddress != "" {
+		annotations[vaultAgentServiceAnnotation] = vaultAgent.Config.VaultAddress
+	}
+
+	// Add vault-type secrets as Vault Agent annotations
+	for _, secret := range secrets {
+		if secret.Type == mcpv1alpha1.SecretTypeVault {
+			secretKey := vaultAgentSecretAnnotationPrefix + secret.Name
+			annotations[secretKey] = secret.Path
+
+			if secret.Template != "" {
+				templateKey := vaultAgentTemplateAnnotationPrefix + secret.Name
+				annotations[templateKey] = secret.Template
+			}
+		}
+	}
+
+	return &corev1.PodTemplateSpec{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: annotations,
+		},
+	}
+}
+
 // mergePodTemplateSpecs merges a secrets patch with a user-provided podTemplateSpec
+// TODO: Refactor to use variadic arguments: mergePodTemplateSpecs(patches ...*corev1.PodTemplateSpec) for better extensibility
 func mergePodTemplateSpecs(secretsPatch, userPatch *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
 	// If no secrets, return user patch as-is
 	if secretsPatch == nil {
@@ -1571,16 +1640,33 @@ func mergePodTemplateSpecs(secretsPatch, userPatch *corev1.PodTemplateSpec) *cor
 		})
 	}
 
+	// Merge annotations from secrets patch
+	if secretsPatch.ObjectMeta.Annotations != nil {
+		if result.ObjectMeta.Annotations == nil {
+			result.ObjectMeta.Annotations = make(map[string]string)
+		}
+		for key, value := range secretsPatch.ObjectMeta.Annotations {
+			result.ObjectMeta.Annotations[key] = value
+		}
+	}
+
 	return result
 }
 
 // generateAndMergePodTemplateSpecs generates secrets patch and merges with user patch
 func generateAndMergePodTemplateSpecs(
 	secrets []mcpv1alpha1.SecretRef,
+	vaultAgent *mcpv1alpha1.VaultAgentConfig,
 	userPatch *corev1.PodTemplateSpec,
 ) *corev1.PodTemplateSpec {
 	secretsPatch := generateSecretsPodTemplatePatch(secrets)
-	return mergePodTemplateSpecs(secretsPatch, userPatch)
+	vaultAgentPatch := generateVaultAgentPodTemplatePatch(vaultAgent, secrets)
+	
+	// First merge secrets with user patch
+	result := mergePodTemplateSpecs(secretsPatch, userPatch)
+	
+	// Then merge Vault Agent annotations
+	return mergePodTemplateSpecs(vaultAgentPatch, result)
 }
 
 // SetupWithManager sets up the controller with the Manager.

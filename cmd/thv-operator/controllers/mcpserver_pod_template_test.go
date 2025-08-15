@@ -399,3 +399,222 @@ func boolPtr(b bool) *bool {
 func int64Ptr(i int64) *int64 {
 	return &i
 }
+
+func TestGenerateVaultAgentPodTemplatePatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		vaultAgent  *mcpv1alpha1.VaultAgentConfig
+		secrets     []mcpv1alpha1.SecretRef
+		expected    *corev1.PodTemplateSpec
+		description string
+	}{
+		{
+			name:        "nil vaultAgent returns nil",
+			vaultAgent:  nil,
+			secrets:     []mcpv1alpha1.SecretRef{},
+			expected:    nil,
+			description: "Should return nil when VaultAgent is not configured",
+		},
+		{
+			name: "disabled vaultAgent returns nil",
+			vaultAgent: &mcpv1alpha1.VaultAgentConfig{
+				Enabled: false,
+				Auth: mcpv1alpha1.VaultAgentAuth{
+					Role: "test-role",
+				},
+			},
+			secrets:     []mcpv1alpha1.SecretRef{},
+			expected:    nil,
+			description: "Should return nil when VaultAgent is disabled",
+		},
+		{
+			name: "basic vaultAgent configuration",
+			vaultAgent: &mcpv1alpha1.VaultAgentConfig{
+				Enabled: true,
+				Auth: mcpv1alpha1.VaultAgentAuth{
+					Role: "my-vault-role",
+				},
+			},
+			secrets: []mcpv1alpha1.SecretRef{},
+			expected: &corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						"vault.hashicorp.com/agent-inject": "true",
+						"vault.hashicorp.com/role":         "my-vault-role",
+						"vault.hashicorp.com/auth-path":    "auth/kubernetes",
+					},
+				},
+			},
+			description: "Should generate basic Vault Agent annotations",
+		},
+		{
+			name: "vaultAgent with custom auth path",
+			vaultAgent: &mcpv1alpha1.VaultAgentConfig{
+				Enabled: true,
+				Auth: mcpv1alpha1.VaultAgentAuth{
+					Role:     "my-vault-role",
+					AuthPath: "auth/custom",
+				},
+			},
+			secrets: []mcpv1alpha1.SecretRef{},
+			expected: &corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						"vault.hashicorp.com/agent-inject": "true",
+						"vault.hashicorp.com/role":         "my-vault-role",
+						"vault.hashicorp.com/auth-path":    "auth/custom",
+					},
+				},
+			},
+			description: "Should use custom auth path when provided",
+		},
+		{
+			name: "vaultAgent with custom vault address",
+			vaultAgent: &mcpv1alpha1.VaultAgentConfig{
+				Enabled: true,
+				Auth: mcpv1alpha1.VaultAgentAuth{
+					Role: "my-vault-role",
+				},
+				Config: &mcpv1alpha1.VaultAgentConfigSettings{
+					VaultAddress: "https://vault.example.com:8200",
+				},
+			},
+			secrets: []mcpv1alpha1.SecretRef{},
+			expected: &corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						"vault.hashicorp.com/agent-inject": "true",
+						"vault.hashicorp.com/role":         "my-vault-role",
+						"vault.hashicorp.com/auth-path":    "auth/kubernetes",
+						"vault.hashicorp.com/service":      "https://vault.example.com:8200",
+					},
+				},
+			},
+			description: "Should include vault address when configured",
+		},
+		{
+			name: "vaultAgent with vault-type secrets",
+			vaultAgent: &mcpv1alpha1.VaultAgentConfig{
+				Enabled: true,
+				Auth: mcpv1alpha1.VaultAgentAuth{
+					Role: "my-vault-role",
+				},
+			},
+			secrets: []mcpv1alpha1.SecretRef{
+				{
+					Type: "vault",
+					Name: "db-creds",
+					Path: "secret/data/db",
+					Template: `{{- with secret "secret/data/db" -}}
+export DB_PASSWORD="{{ .Data.data.password }}"
+{{- end -}}`,
+				},
+				{
+					Type: "kubernetes", // Should be ignored
+					Name: "k8s-secret",
+					Key:  "api-key",
+				},
+			},
+			expected: &corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						"vault.hashicorp.com/agent-inject":             "true",
+						"vault.hashicorp.com/role":                     "my-vault-role",
+						"vault.hashicorp.com/auth-path":                "auth/kubernetes",
+						"vault.hashicorp.com/agent-inject-secret-db-creds": "secret/data/db",
+						"vault.hashicorp.com/agent-inject-template-db-creds": `{{- with secret "secret/data/db" -}}
+export DB_PASSWORD="{{ .Data.data.password }}"
+{{- end -}}`,
+					},
+				},
+			},
+			description: "Should generate secret and template annotations for vault-type secrets only",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			result := generateVaultAgentPodTemplatePatch(tt.vaultAgent, tt.secrets)
+			assert.Equal(t, tt.expected, result, tt.description)
+		})
+	}
+}
+
+func TestDeploymentForMCPServerWithVaultAgent(t *testing.T) {
+	t.Parallel()
+
+	mcpServer := &mcpv1alpha1.MCPServer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-vault-mcp-server",
+			Namespace: "default",
+		},
+		Spec: mcpv1alpha1.MCPServerSpec{
+			Image:     "test-image:latest",
+			Transport: "stdio",
+			Port:      8080,
+			VaultAgent: &mcpv1alpha1.VaultAgentConfig{
+				Enabled: true,
+				Auth: mcpv1alpha1.VaultAgentAuth{
+					Role:     "my-vault-role",
+					AuthPath: "auth/kubernetes",
+				},
+				Config: &mcpv1alpha1.VaultAgentConfigSettings{
+					VaultAddress: "https://vault.example.com",
+				},
+			},
+			Secrets: []mcpv1alpha1.SecretRef{
+				{
+					Type: "vault",
+					Name: "github-config",
+					Path: "workload-secrets/data/github-mcp/config",
+					Template: `{{- with secret "workload-secrets/data/github-mcp/config" -}}
+export GITHUB_TOKEN="{{ .Data.data.token }}"
+{{- end -}}`,
+					TargetEnvName: "GITHUB_CONFIG",
+				},
+			},
+		},
+	}
+
+	// Register the scheme
+	s := scheme.Scheme
+	s.AddKnownTypes(mcpv1alpha1.GroupVersion, &mcpv1alpha1.MCPServer{})
+
+	// Create reconciler
+	r := &MCPServerReconciler{Scheme: s}
+
+	// Generate deployment
+	deployment := r.deploymentForMCPServer(mcpServer)
+	require.NotNil(t, deployment)
+
+	// Find pod template patch in args
+	container := deployment.Spec.Template.Spec.Containers[0]
+	var podTemplatePatch string
+	for _, arg := range container.Args {
+		if strings.HasPrefix(arg, "--k8s-pod-patch=") {
+			podTemplatePatch = arg[16:]
+			break
+		}
+	}
+
+	require.NotEmpty(t, podTemplatePatch, "Pod template patch should be present")
+
+	// Parse patch
+	var podTemplateSpec corev1.PodTemplateSpec
+	err := json.Unmarshal([]byte(podTemplatePatch), &podTemplateSpec)
+	require.NoError(t, err)
+
+	// Verify Vault Agent annotations
+	annotations := podTemplateSpec.ObjectMeta.Annotations
+	require.NotNil(t, annotations)
+
+	assert.Equal(t, "true", annotations["vault.hashicorp.com/agent-inject"])
+	assert.Equal(t, "my-vault-role", annotations["vault.hashicorp.com/role"])
+	assert.Equal(t, "auth/kubernetes", annotations["vault.hashicorp.com/auth-path"])
+	assert.Equal(t, "https://vault.example.com", annotations["vault.hashicorp.com/service"])
+	assert.Equal(t, "workload-secrets/data/github-mcp/config", annotations["vault.hashicorp.com/agent-inject-secret-github-config"])
+	assert.Contains(t, annotations["vault.hashicorp.com/agent-inject-template-github-config"], "GITHUB_TOKEN")
+}
