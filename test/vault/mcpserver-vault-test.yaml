@@ -1,0 +1,35 @@
+apiVersion: toolhive.stacklok.dev/v1alpha1
+kind: MCPServer
+metadata:
+  name: github-vault-test
+  namespace: toolhive-system
+spec:
+  image: ghcr.io/github/github-mcp-server:latest
+  transport: stdio
+  port: 9095
+  permissionProfile:
+    type: builtin
+    name: network
+  resources:
+    limits:
+      cpu: '100m'
+      memory: '128Mi'
+    requests:
+      cpu: '50m'
+      memory: '64Mi'
+  
+  # Vault Agent configuration
+  vaultAgent:
+    enabled: true
+    auth:
+      role: "toolhive-mcp-workloads"
+  
+  # Vault secret only - environment variable comes from template
+  secrets:
+  - type: "vault"
+    name: "github-config"
+    path: "workload-secrets/data/github-mcp/config"
+    template: |
+      {{- with secret "workload-secrets/data/github-mcp/config" -}}
+      GITHUB_PERSONAL_ACCESS_TOKEN={{ .Data.data.token }}
+      {{- end -}}
