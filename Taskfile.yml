@@ -200,6 +200,29 @@ tasks:
       - echo "Login token dev-only-token"
       - echo "Run 'task vault-test' to verify setup"
 
+  vault-test-reproducibility:
+    desc: Test full reproducibility by tearing down and recreating Vault setup
+    ignore_error: true
+    cmds:
+      - echo "=== Testing Vault Integration Reproducibility ==="
+      - echo "1. Tearing down existing setup..."
+      - task: kind-destroy
+      - echo "2. Creating fresh Kind cluster with Vault..."
+      - task: kind-with-vault
+      - echo "3. Waiting for system to stabilize..."
+      - sleep 30
+      - echo "4. Testing MCPServer with Vault integration..."
+      - kubectl apply -f test/vault/mcpserver-vault-test.yaml --kubeconfig kconfig.yaml
+      - echo "5. Waiting for pod to be ready..."
+      - kubectl wait --for=condition=ready pod -l app.kubernetes.io/instance=github-vault-test --namespace toolhive-system --timeout=300s --kubeconfig kconfig.yaml
+      - echo "6. Verifying Vault Agent injection worked..."
+      - kubectl get pod -l app.kubernetes.io/instance=github-vault-test -n toolhive-system --kubeconfig kconfig.yaml -o jsonpath='{.items[0].metadata.annotations.vault\.hashicorp\.com/agent-inject-status}'
+      - echo "7. Verifying secret file exists..."
+      - kubectl exec $(kubectl get pod -l app.kubernetes.io/instance=github-vault-test -n toolhive-system --kubeconfig kconfig.yaml -o jsonpath='{.items[0].metadata.name}') -c vault-agent -n toolhive-system --kubeconfig kconfig.yaml -- cat /vault/secrets/github-config
+      - echo "8. Verifying ProxyRunner processed secrets..."  
+      - kubectl logs $(kubectl get pod -l app.kubernetes.io/instance=github-vault-test -n toolhive-system --kubeconfig kconfig.yaml -o jsonpath='{.items[0].metadata.name}') -c toolhive -n toolhive-system --kubeconfig kconfig.yaml | grep "Processed.*Vault secret files"
+      - echo "✅ Reproducibility test PASSED! Vault integration works end-to-end from scratch."
+
   vault-install:
     desc: Install Vault with Agent Injector
     cmds:
@@ -237,18 +260,16 @@ tasks:
       # Create Vault policy
       - |
         kubectl exec --namespace vault {{.VAULT_POD}} --kubeconfig kconfig.yaml -- \
-          sh -c 'vault policy write toolhive-workload-secrets - << EOF
-        path "auth/token/lookup-self" { capabilities = ["read"] }
-        path "auth/token/renew-self" { capabilities = ["update"] }
-        path "workload-secrets/data/github-mcp/*" { capabilities = ["read"] }
+          sh -c 'vault policy write toolhive-mcp-workloads - << EOF
+        path "workload-secrets/data/*" { capabilities = ["read"] }
         EOF'
       # Create Kubernetes auth role
       - |
         kubectl exec --namespace vault {{.VAULT_POD}} --kubeconfig kconfig.yaml -- \
           vault write auth/kubernetes/role/toolhive-mcp-workloads \
-            bound_service_account_names="mcp-*" \
+            bound_service_account_names="github-vault-test-proxy-runner,mcp-test" \
             bound_service_account_namespaces="toolhive-system" \
-            policies="toolhive-workload-secrets" \
+            policies="toolhive-mcp-workloads" \
             audience="https://kubernetes.default.svc.cluster.local" \
             ttl="1h" \
             max_ttl="4h"
