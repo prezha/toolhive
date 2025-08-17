@@ -188,6 +188,11 @@ func (r *Runner) Run(ctx context.Context) error {
 		}
 	}
 
+	// Process Vault Agent injected secrets (auto-detection)
+	if _, err := r.Config.WithVaultSecrets(); err != nil {
+		return fmt.Errorf("failed to process vault secrets: %w", err)
+	}
+
 	// Set up the transport
 	logger.Infof("Setting up %s transport...", r.Config.Transport)
 	if err := transportHandler.Setup(

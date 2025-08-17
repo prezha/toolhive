@@ -315,6 +315,31 @@ func (c *RunConfig) WithSecrets(ctx context.Context, secretManager secrets.Provi
 	return c, nil
 }
 
+// WithVaultSecrets processes Vault Agent injected secrets and adds them to environment variables
+func (c *RunConfig) WithVaultSecrets() (*RunConfig, error) {
+	vaultSecrets, err := processVaultSecretsDirectory()
+	if err != nil {
+		return c, fmt.Errorf("failed to process vault secrets: %w", err)
+	}
+
+	// Initialize EnvVars if it's nil
+	if c.EnvVars == nil {
+		c.EnvVars = make(map[string]string)
+	}
+
+	// If no secrets found, return early (after ensuring EnvVars is initialized)
+	if len(vaultSecrets) == 0 {
+		return c, nil
+	}
+
+	// Add vault secrets to environment variables
+	for key, value := range vaultSecrets {
+		c.EnvVars[key] = value
+	}
+
+	return c, nil
+}
+
 // WithContainerName generates container name if not already set
 func (c *RunConfig) WithContainerName() *RunConfig {
 	if c.ContainerName == "" && c.Image != "" {

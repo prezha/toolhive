@@ -430,7 +430,7 @@ func TestGenerateVaultAgentPodTemplatePatch(t *testing.T) {
 			description: "Should return nil when VaultAgent is disabled",
 		},
 		{
-			name: "basic vaultAgent configuration",
+			name: "basic vaultAgent configuration without vault secrets",
 			vaultAgent: &mcpv1alpha1.VaultAgentConfig{
 				Enabled: true,
 				Auth: mcpv1alpha1.VaultAgentAuth{
@@ -438,19 +438,11 @@ func TestGenerateVaultAgentPodTemplatePatch(t *testing.T) {
 				},
 			},
 			secrets: []mcpv1alpha1.SecretRef{},
-			expected: &corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						"vault.hashicorp.com/agent-inject": "true",
-						"vault.hashicorp.com/role":         "my-vault-role",
-						"vault.hashicorp.com/auth-path":    "auth/kubernetes",
-					},
-				},
-			},
-			description: "Should generate basic Vault Agent annotations",
+			expected: nil, // No annotations when no vault-type secrets
+			description: "Should return nil when no vault-type secrets are present",
 		},
 		{
-			name: "vaultAgent with custom auth path",
+			name: "vaultAgent with custom auth path but no vault secrets",
 			vaultAgent: &mcpv1alpha1.VaultAgentConfig{
 				Enabled: true,
 				Auth: mcpv1alpha1.VaultAgentAuth{
@@ -459,19 +451,11 @@ func TestGenerateVaultAgentPodTemplatePatch(t *testing.T) {
 				},
 			},
 			secrets: []mcpv1alpha1.SecretRef{},
-			expected: &corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						"vault.hashicorp.com/agent-inject": "true",
-						"vault.hashicorp.com/role":         "my-vault-role",
-						"vault.hashicorp.com/auth-path":    "auth/custom",
-					},
-				},
-			},
-			description: "Should use custom auth path when provided",
+			expected: nil, // No annotations when no vault-type secrets
+			description: "Should return nil when no vault-type secrets are present",
 		},
 		{
-			name: "vaultAgent with custom vault address",
+			name: "vaultAgent with custom vault address but no vault secrets",
 			vaultAgent: &mcpv1alpha1.VaultAgentConfig{
 				Enabled: true,
 				Auth: mcpv1alpha1.VaultAgentAuth{
@@ -482,17 +466,8 @@ func TestGenerateVaultAgentPodTemplatePatch(t *testing.T) {
 				},
 			},
 			secrets: []mcpv1alpha1.SecretRef{},
-			expected: &corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						"vault.hashicorp.com/agent-inject": "true",
-						"vault.hashicorp.com/role":         "my-vault-role",
-						"vault.hashicorp.com/auth-path":    "auth/kubernetes",
-						"vault.hashicorp.com/service":      "https://vault.example.com:8200",
-					},
-				},
-			},
-			description: "Should include vault address when configured",
+			expected: nil, // No annotations when no vault-type secrets
+			description: "Should return nil when no vault-type secrets are present",
 		},
 		{
 			name: "vaultAgent with vault-type secrets",
@@ -531,6 +506,29 @@ export DB_PASSWORD="{{ .Data.data.password }}"
 				},
 			},
 			description: "Should generate secret and template annotations for vault-type secrets only",
+		},
+		{
+			name: "vaultAgent enabled with only kubernetes-type secrets",
+			vaultAgent: &mcpv1alpha1.VaultAgentConfig{
+				Enabled: true,
+				Auth: mcpv1alpha1.VaultAgentAuth{
+					Role: "my-vault-role",
+				},
+			},
+			secrets: []mcpv1alpha1.SecretRef{
+				{
+					Type: "kubernetes",
+					Name: "k8s-secret-1",
+					Key:  "api-key",
+				},
+				{
+					Type: "kubernetes",
+					Name: "k8s-secret-2", 
+					Key:  "db-password",
+				},
+			},
+			expected:    nil, // No Vault annotations should be generated
+			description: "Should return nil when only kubernetes-type secrets are present",
 		},
 	}
 

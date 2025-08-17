@@ -615,7 +615,8 @@ func (r *MCPServerReconciler) deploymentForMCPServer(m *mcpv1alpha1.MCPServer) *
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: ls, // Keep original labels for pod template
+					Labels:      ls, // Keep original labels for pod template
+					Annotations: extractAnnotations(finalPodTemplateSpec), // Add Vault Agent annotations
 				},
 				Spec: corev1.PodSpec{
 					ServiceAccountName: proxyRunnerServiceAccountName(m.Name),
@@ -670,6 +671,14 @@ func (r *MCPServerReconciler) deploymentForMCPServer(m *mcpv1alpha1.MCPServer) *
 		return nil
 	}
 	return dep
+}
+
+// extractAnnotations safely extracts annotations from a PodTemplateSpec
+func extractAnnotations(podTemplateSpec *corev1.PodTemplateSpec) map[string]string {
+	if podTemplateSpec == nil || podTemplateSpec.ObjectMeta.Annotations == nil {
+		return nil
+	}
+	return podTemplateSpec.ObjectMeta.Annotations
 }
 
 func createServiceName(mcpServerName string) string {
@@ -1510,7 +1519,7 @@ func int32Ptr(i int32) *int32 {
 	return &i
 }
 
-// generateSecretsPodTemplatePatch generates a podTemplateSpec patch for secrets
+// generateSecretsPodTemplatePatch generates a podTemplateSpec patch for kubernetes-type secrets only
 func generateSecretsPodTemplatePatch(secrets []mcpv1alpha1.SecretRef) *corev1.PodTemplateSpec {
 	if len(secrets) == 0 {
 		return nil
@@ -1518,6 +1527,10 @@ func generateSecretsPodTemplatePatch(secrets []mcpv1alpha1.SecretRef) *corev1.Po
 
 	envVars := make([]corev1.EnvVar, 0, len(secrets))
 	for _, secret := range secrets {
+		// Only process kubernetes-type secrets, vault-type secrets are handled by Vault Agent injection
+		if secret.Type == mcpv1alpha1.SecretTypeVault {
+			continue
+		}
 		targetEnv := secret.Key
 		if secret.TargetEnvName != "" {
 			targetEnv = secret.TargetEnvName
@@ -1548,9 +1561,24 @@ func generateSecretsPodTemplatePatch(secrets []mcpv1alpha1.SecretRef) *corev1.Po
 	}
 }
 
+// hasVaultSecrets checks if any of the secrets are of type "vault"
+func hasVaultSecrets(secrets []mcpv1alpha1.SecretRef) bool {
+	for _, secret := range secrets {
+		if secret.Type == mcpv1alpha1.SecretTypeVault {
+			return true
+		}
+	}
+	return false
+}
+
 // generateVaultAgentPodTemplatePatch generates a podTemplateSpec patch for Vault Agent annotations
 func generateVaultAgentPodTemplatePatch(vaultAgent *mcpv1alpha1.VaultAgentConfig, secrets []mcpv1alpha1.SecretRef) *corev1.PodTemplateSpec {
 	if vaultAgent == nil || !vaultAgent.Enabled {
+		return nil
+	}
+
+	// Only generate annotations if we have vault-type secrets
+	if !hasVaultSecrets(secrets) {
 		return nil
 	}
 
