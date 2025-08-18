@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -57,7 +59,10 @@ type TokenValidator struct {
 	introspectURL string       // Optional introspection endpoint
 	client        *http.Client // HTTP client for making requests
 
-	// No need for additional caching as jwk.Cache handles it
+	// Lazy JWKS registration
+	jwksRegistered     bool
+	jwksRegistrationMu sync.Mutex
+	jwksRegistrationErr error
 }
 
 // TokenValidatorConfig contains configuration for the token validator.
@@ -168,15 +173,19 @@ func NewTokenValidatorConfig(issuer, audience, jwksURL, clientID string, clientS
 // NewTokenValidator creates a new token validator.
 func NewTokenValidator(ctx context.Context, config TokenValidatorConfig) (*TokenValidator, error) {
 	jwksURL := config.JWKSURL
+	logger.Debugf("TokenValidator config - Issuer: %s, JWKS URL: %s", config.Issuer, jwksURL)
 
 	// If JWKS URL is not provided but issuer is, try to discover it
 	if jwksURL == "" && config.Issuer != "" {
+		logger.Debugf("JWKS URL not provided, attempting OIDC discovery for issuer: %s", config.Issuer)
 		doc, err := discoverOIDCConfiguration(ctx, config.Issuer, config.CACertPath, config.AuthTokenFile, config.AllowPrivateIP)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrFailedToDiscoverOIDC, err)
 		}
 		jwksURL = doc.JWKSURI
-
+		logger.Debugf("OIDC discovery completed, found JWKS URL: %s", jwksURL)
+	} else {
+		logger.Debugf("Using provided JWKS URL: %s", jwksURL)
 	}
 
 	// Ensure we have a JWKS URL either provided or discovered
@@ -185,11 +194,13 @@ func NewTokenValidator(ctx context.Context, config TokenValidatorConfig) (*Token
 	}
 
 	// Create HTTP client with CA bundle and auth token support for JWKS
+	fmt.Printf("DEBUG: Creating HTTP client for JWKS with AllowPrivateIP=%t\n", config.AllowPrivateIP)
 	httpClient, err := networking.NewHttpClientBuilder().
 		WithCABundle(config.CACertPath).
 		WithPrivateIPs(config.AllowPrivateIP).
 		WithTokenFromFile(config.AuthTokenFile).
 		Build()
+	fmt.Printf("DEBUG: HTTP client for JWKS created successfully\n")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP client: %w", err)
 	}
@@ -203,12 +214,10 @@ func NewTokenValidator(ctx context.Context, config TokenValidatorConfig) (*Token
 		return nil, fmt.Errorf("failed to create JWKS cache: %w", err)
 	}
 
-	// Register the JWKS URL with the cache
-	err = cache.Register(ctx, jwksURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to register JWKS URL: %w", err)
-	}
+	// Skip synchronous JWKS registration - will be done lazily on first use
+	logger.Debugf("JWKS cache created, registration will be done lazily on first token validation")
 
+	logger.Debugf("TokenValidator created successfully with JWKS URL: %s", jwksURL)
 	return &TokenValidator{
 		issuer:        config.Issuer,
 		audience:      config.Audience,
@@ -221,8 +230,108 @@ func NewTokenValidator(ctx context.Context, config TokenValidatorConfig) (*Token
 	}, nil
 }
 
+// testJWKSConnectivity tests network connectivity to the JWKS URL step by step
+func (v *TokenValidator) testJWKSConnectivity(ctx context.Context, jwksURL string) error {
+	parsedURL, err := url.Parse(jwksURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	
+	host := parsedURL.Hostname()
+	port := parsedURL.Port()
+	if port == "" {
+		if parsedURL.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+	
+	logger.Debugf("Testing DNS resolution for %s", host)
+	addrs, err := net.LookupHost(host)
+	if err != nil {
+		return fmt.Errorf("DNS resolution failed for %s: %w", host, err)
+	}
+	logger.Debugf("DNS resolved %s to %v", host, addrs)
+	
+	logger.Debugf("Testing TCP connection to %s:%s", host, port)
+	dialer := &net.Dialer{Timeout: 3 * time.Second}
+	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(host, port))
+	if err != nil {
+		return fmt.Errorf("TCP connection failed to %s:%s: %w", host, port, err)
+	}
+	conn.Close()
+	logger.Debugf("TCP connection successful to %s:%s", host, port)
+	
+	logger.Debugf("Testing HTTP request to %s", jwksURL)
+	req, err := http.NewRequestWithContext(ctx, "GET", jwksURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+	
+	resp, err := v.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("HTTP request failed: %w", err)
+	}
+	resp.Body.Close()
+	logger.Debugf("HTTP request successful, status: %s", resp.Status)
+	
+	return nil
+}
+
+// ensureJWKSRegistered ensures that the JWKS URL is registered with the cache.
+// This is called lazily on first use to avoid blocking startup.
+func (v *TokenValidator) ensureJWKSRegistered(ctx context.Context) error {
+	v.jwksRegistrationMu.Lock()
+	defer v.jwksRegistrationMu.Unlock()
+
+	// Check if already registered or failed
+	if v.jwksRegistered {
+		return v.jwksRegistrationErr
+	}
+
+	// Create context with 5-second timeout for JWKS registration
+	registrationCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	// Test network connectivity before registration
+	logger.Debugf("Testing network connectivity to JWKS URL: %s", v.jwksURL)
+	if err := v.testJWKSConnectivity(registrationCtx, v.jwksURL); err != nil {
+		logger.Warnf("JWKS connectivity test failed: %v", err)
+	} else {
+		logger.Debugf("JWKS connectivity test successful")
+	}
+
+	// Attempt registration
+	logger.Debugf("Performing lazy JWKS registration for URL: %s (5s timeout)", v.jwksURL)
+	start := time.Now()
+	err := v.jwksClient.Register(registrationCtx, v.jwksURL)
+	duration := time.Since(start)
+	
+	if err != nil {
+		v.jwksRegistrationErr = fmt.Errorf("failed to register JWKS URL: %w", err)
+		logger.Warnf("Failed to register JWKS URL within 5s timeout after %v: %v", duration, v.jwksRegistrationErr)
+		
+		// Check if it's a context timeout specifically
+		if errors.Is(err, context.DeadlineExceeded) {
+			logger.Warnf("JWKS registration timed out after %v (context deadline exceeded)", duration)
+		}
+	} else {
+		logger.Debugf("Successfully registered JWKS URL: %s (took %v)", v.jwksURL, duration)
+		v.jwksRegistrationErr = nil
+	}
+
+	v.jwksRegistered = true
+	return v.jwksRegistrationErr
+}
+
 // getKeyFromJWKS gets the key from the JWKS.
 func (v *TokenValidator) getKeyFromJWKS(ctx context.Context, token *jwt.Token) (interface{}, error) {
+	// Ensure JWKS is registered before attempting to use it
+	if err := v.ensureJWKSRegistered(ctx); err != nil {
+		return nil, fmt.Errorf("JWKS registration failed: %w", err)
+	}
+
 	// Validate the signing method
 	if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
 		return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])

@@ -22,12 +22,15 @@ const HttpTimeout = 30 * time.Second
 
 // Dialer control function for validating addresses prior to connection
 func protectedDialerControl(_, address string, _ syscall.RawConn) error {
+	fmt.Printf("DEBUG: protectedDialerControl called for address: %s\n", address)
 
 	err := AddressReferencesPrivateIp(address)
 	if err != nil {
+		fmt.Printf("DEBUG: protectedDialerControl BLOCKING address %s: %v\n", address, err)
 		return err
 	}
 
+	fmt.Printf("DEBUG: protectedDialerControl ALLOWING address: %s\n", address)
 	return nil
 }
 
@@ -38,6 +41,14 @@ type ValidatingTransport struct {
 
 // RoundTrip validates the request URL prior to forwarding
 func (t *ValidatingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	fmt.Printf("DEBUG: ValidatingTransport.RoundTrip called for URL: %s\n", req.URL.String())
+	
+	// Skip validation if INSECURE_DISABLE_URL_VALIDATION is set
+	if strings.EqualFold(os.Getenv("INSECURE_DISABLE_URL_VALIDATION"), "true") {
+		fmt.Printf("DEBUG: ValidatingTransport skipping validation due to INSECURE_DISABLE_URL_VALIDATION\n")
+		return t.Transport.RoundTrip(req)
+	}
+
 	// Check for valid URL specification
 	parsedUrl, err := url.Parse(req.URL.String())
 	if err != nil {
@@ -47,9 +58,11 @@ func (t *ValidatingTransport) RoundTrip(req *http.Request) (*http.Response, erro
 
 	// Check for HTTPS scheme
 	if parsedUrl.Scheme != "https" {
+		fmt.Printf("DEBUG: ValidatingTransport BLOCKING non-HTTPS URL: %s\n", req.URL.String())
 		return nil, fmt.Errorf("the supplied URL %s is not HTTPS scheme", req.URL.String())
 	}
 
+	fmt.Printf("DEBUG: ValidatingTransport ALLOWING HTTPS URL: %s\n", req.URL.String())
 	return t.Transport.RoundTrip(req)
 }
 
@@ -120,9 +133,12 @@ func (b *HttpClientBuilder) Build() (*http.Client, error) {
 	}
 
 	if !b.allowPrivate {
+		fmt.Printf("DEBUG: Setting up protectedDialerControl (allowPrivate=%t)\n", b.allowPrivate)
 		transport.DialContext = (&net.Dialer{
 			Control: protectedDialerControl,
 		}).DialContext
+	} else {
+		fmt.Printf("DEBUG: Skipping protectedDialerControl (allowPrivate=%t)\n", b.allowPrivate)
 	}
 
 	if b.caCertPath != "" {

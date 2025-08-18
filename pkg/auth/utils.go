@@ -30,12 +30,14 @@ func GetAuthenticationMiddleware(ctx context.Context, oidcConfig *TokenValidator
 ) (func(http.Handler) http.Handler, http.Handler, error) {
 	if oidcConfig != nil {
 		logger.Info("OIDC validation enabled")
+		logger.Debugf("Creating JWT validator with issuer: %s, AllowPrivateIP: %t", oidcConfig.Issuer, oidcConfig.AllowPrivateIP)
 
 		// Create JWT validator
 		jwtValidator, err := NewTokenValidator(ctx, *oidcConfig)
 		if err != nil {
 			return nil, nil, err
 		}
+		logger.Debugf("JWT validator created successfully")
 
 		authInfoHandler := NewAuthInfoHandler(oidcConfig.Issuer, jwtValidator.jwksURL, oidcConfig.ResourceURL, nil)
 		return jwtValidator.Middleware, authInfoHandler, nil

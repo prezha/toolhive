@@ -131,12 +131,15 @@ func (r *Runner) Run(ctx context.Context) error {
 	// Set proxy mode for stdio transport
 	transportConfig.ProxyMode = r.Config.ProxyMode
 
+	logger.Debugf("Creating transport handler for type: %s", r.Config.Transport)
 	transportHandler, err := transport.NewFactory().Create(transportConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create transport: %v", err)
 	}
+	logger.Debugf("Transport handler created successfully")
 
 	// Process secrets if provided
+	logger.Debugf("Checking for secrets, found %d secret entries", len(r.Config.Secrets))
 	if len(r.Config.Secrets) > 0 {
 		cfg := config.GetConfig()
 
@@ -155,9 +158,11 @@ func (r *Runner) Run(ctx context.Context) error {
 			return err
 		}
 	}
+	logger.Debugf("Finished processing secrets")
 
 	// Set up the transport
 	logger.Infof("Setting up %s transport...", r.Config.Transport)
+	logger.Debugf("Transport setup parameters - Container: %s, Image: %s", r.Config.ContainerName, r.Config.Image)
 	if err := transportHandler.Setup(
 		ctx, r.Config.Deployer, r.Config.ContainerName, r.Config.Image, r.Config.CmdArgs,
 		r.Config.EnvVars, r.Config.ContainerLabels, r.Config.PermissionProfile, r.Config.K8sPodTemplatePatch,
@@ -165,12 +170,14 @@ func (r *Runner) Run(ctx context.Context) error {
 	); err != nil {
 		return fmt.Errorf("failed to set up transport: %v", err)
 	}
+	logger.Debugf("Transport setup completed successfully")
 
 	// Start the transport (which also starts the container and monitoring)
 	logger.Infof("Starting %s transport for %s...", r.Config.Transport, r.Config.ContainerName)
 	if err := transportHandler.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start transport: %v", err)
 	}
+	logger.Debugf("Transport started successfully")
 
 	logger.Infof("MCP server %s started successfully", r.Config.ContainerName)
 

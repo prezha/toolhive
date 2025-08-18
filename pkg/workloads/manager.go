@@ -187,7 +187,9 @@ func (d *defaultManager) RunWorkload(ctx context.Context, runConfig *runner.RunC
 		return fmt.Errorf("failed to create workload status: %v", err)
 	}
 
+	logger.Debugf("Creating MCP runner for workload: %s", runConfig.BaseName)
 	mcpRunner := runner.NewRunner(runConfig, d.statuses)
+	logger.Debugf("Starting MCP runner for workload: %s", runConfig.BaseName)
 	err := mcpRunner.Run(ctx)
 	if err != nil {
 		// If the run failed, we should set the status to error.
