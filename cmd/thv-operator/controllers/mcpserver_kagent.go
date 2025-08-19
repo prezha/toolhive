@@ -17,17 +17,22 @@ import (
 	mcpv1alpha1 "github.com/stacklok/toolhive/cmd/thv-operator/api/v1alpha1"
 )
 
+const (
+	kagentAPIVersionV1Alpha1 = "v1alpha1"
+	kagentAPIVersionV1Alpha2 = "v1alpha2"
+)
+
 // kagentToolServerGVK defines the GroupVersionKind for kagent v1alpha1 ToolServer
 var kagentToolServerGVK = schema.GroupVersionKind{
 	Group:   "kagent.dev",
-	Version: "v1alpha1",
+	Version: kagentAPIVersionV1Alpha1,
 	Kind:    "ToolServer",
 }
 
 // kagentRemoteMCPServerGVK defines the GroupVersionKind for kagent v1alpha2 RemoteMCPServer
 var kagentRemoteMCPServerGVK = schema.GroupVersionKind{
 	Group:   "kagent.dev",
-	Version: "v1alpha2",
+	Version: kagentAPIVersionV1Alpha2,
 	Kind:    "RemoteMCPServer",
 }
 
@@ -36,11 +41,11 @@ const (
 	// v1alpha1 config types
 	kagentConfigTypeSSE            = "sse"
 	kagentConfigTypeStreamableHTTP = "streamableHttp"
-	
+
 	// v1alpha2 protocol types
 	kagentProtocolSSE            = "SSE"
 	kagentProtocolStreamableHTTP = "STREAMABLE_HTTP"
-	
+
 	// Environment variable for kagent API version preference
 	kagentAPIVersionEnv = "KAGENT_API_VERSION"
 )
@@ -71,41 +76,41 @@ func getPreferredKagentAPIVersion() string {
 }
 
 // detectKagentAPIVersion detects which kagent API version is available in the cluster
-func (r *MCPServerReconciler) detectKagentAPIVersion(ctx context.Context) (string, error) {
+func (r *MCPServerReconciler) detectKagentAPIVersion(ctx context.Context) string {
 	// First check if user has a preference
 	preferred := getPreferredKagentAPIVersion()
-	
+
 	// Try to list resources of the preferred version to see if it's available
-	if preferred == "v1alpha2" {
+	if preferred == kagentAPIVersionV1Alpha2 {
 		// Try v1alpha2 RemoteMCPServer
 		list := &unstructured.UnstructuredList{}
 		list.SetGroupVersionKind(schema.GroupVersionKind{
 			Group:   "kagent.dev",
-			Version: "v1alpha2",
+			Version: kagentAPIVersionV1Alpha2,
 			Kind:    "RemoteMCPServerList",
 		})
-		
+
 		// We just want to check if the API exists, limit to 1 item
 		if err := r.List(ctx, list, &client.ListOptions{Limit: 1}); err == nil {
-			return "v1alpha2", nil
+			return kagentAPIVersionV1Alpha2
 		}
 	}
-	
+
 	// Try v1alpha1 ToolServer
 	list := &unstructured.UnstructuredList{}
 	list.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   "kagent.dev",
-		Version: "v1alpha1",
+		Version: kagentAPIVersionV1Alpha1,
 		Kind:    "ToolServerList",
 	})
-	
+
 	if err := r.List(ctx, list, &client.ListOptions{Limit: 1}); err == nil {
-		return "v1alpha1", nil
+		return kagentAPIVersionV1Alpha1
 	}
-	
+
 	// If neither works, return the preferred version anyway
 	// The actual resource creation will fail with a clear error
-	return preferred, nil
+	return preferred
 }
 
 // ensureKagentToolServer ensures a kagent resource exists for the ToolHive MCPServer
@@ -120,18 +125,14 @@ func (r *MCPServerReconciler) ensureKagentToolServer(ctx context.Context, mcpSer
 	}
 
 	// Detect which kagent API version to use
-	apiVersion, err := r.detectKagentAPIVersion(ctx)
-	if err != nil {
-		logger.Error(err, "Failed to detect kagent API version, using default", "default", apiVersion)
-	}
-
+	apiVersion := r.detectKagentAPIVersion(ctx)
 	logger.V(1).Info("Using kagent API version", "version", apiVersion)
 
 	// Create the appropriate kagent resource based on API version
 	var kagentResource *unstructured.Unstructured
 	var gvk schema.GroupVersionKind
-	
-	if apiVersion == "v1alpha2" {
+
+	if apiVersion == kagentAPIVersionV1Alpha2 {
 		kagentResource = r.createKagentRemoteMCPServerObject(mcpServer)
 		gvk = kagentRemoteMCPServerGVK
 	} else {
@@ -142,7 +143,7 @@ func (r *MCPServerReconciler) ensureKagentToolServer(ctx context.Context, mcpSer
 	// Check if the kagent resource already exists
 	existing := &unstructured.Unstructured{}
 	existing.SetGroupVersionKind(gvk)
-	err = r.Get(ctx, types.NamespacedName{
+	err := r.Get(ctx, types.NamespacedName{
 		Name:      kagentResource.GetName(),
 		Namespace: kagentResource.GetNamespace(),
 	}, existing)

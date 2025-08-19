@@ -199,12 +199,12 @@ func TestCreateKagentToolServerObjectStreamableHTTP(t *testing.T) {
 	assert.Equal(t, expectedURL, url)
 }
 
-func TestEnsureKagentToolServer(t *testing.T) {
+func TestEnsureKagentToolServer(t *testing.T) { //nolint:tparallel // Can't parallelize due to environment variable usage
 	t.Parallel()
 	// Create scheme with support for unstructured resources
 	scheme := runtime.NewScheme()
 	_ = mcpv1alpha1.AddToScheme(scheme)
-	
+
 	// Register kagent GVKs as unstructured types
 	// This allows the fake client to handle them even without the actual CRDs
 	// We need to add these to the scheme so the fake client knows about them
@@ -218,7 +218,7 @@ func TestEnsureKagentToolServer(t *testing.T) {
 		Version: "v1alpha2",
 		Kind:    "RemoteMCPServer",
 	}
-	
+
 	// Add the unstructured types to the scheme
 	scheme.AddKnownTypeWithName(kagentToolServerGVK, &unstructured.Unstructured{})
 	scheme.AddKnownTypeWithName(schema.GroupVersionKind{
@@ -247,7 +247,7 @@ func TestEnsureKagentToolServer(t *testing.T) {
 		},
 	}
 
-	t.Run("creates kagent ToolServer when enabled", func(t *testing.T) {
+	t.Run("creates kagent ToolServer when enabled", func(t *testing.T) { //nolint:paralleltest // Can't parallelize due to environment variable usage
 		// Don't run in parallel as environment variables are shared
 		// Enable kagent integration
 		os.Setenv("KAGENT_INTEGRATION_ENABLED", "true")
@@ -270,7 +270,7 @@ func TestEnsureKagentToolServer(t *testing.T) {
 		// In a real cluster with kagent CRDs installed, this would create the resource
 		// With the fake client, it will try to create but may not be able to verify
 		require.NoError(t, err)
-		
+
 		// Try to get the created resource using the client
 		kagentToolServer := &unstructured.Unstructured{}
 		kagentToolServer.SetGroupVersionKind(schema.GroupVersionKind{
@@ -278,14 +278,14 @@ func TestEnsureKagentToolServer(t *testing.T) {
 			Version: "v1alpha1",
 			Kind:    "ToolServer",
 		})
-		
+
 		// Try to get the resource - this may fail with fake client
 		// but the important part is that ensureKagentToolServer didn't error
 		err = client.Get(context.Background(), types.NamespacedName{
 			Name:      "toolhive-test-mcp",
 			Namespace: "test-namespace",
 		}, kagentToolServer)
-		
+
 		// With fake client and unregistered CRDs, we expect this to fail
 		// but that's OK - the main test is that ensureKagentToolServer works
 		if err == nil {
@@ -294,7 +294,7 @@ func TestEnsureKagentToolServer(t *testing.T) {
 		}
 	})
 
-	t.Run("deletes kagent ToolServer when disabled", func(t *testing.T) {
+	t.Run("deletes kagent ToolServer when disabled", func(t *testing.T) { //nolint:paralleltest // Can't parallelize due to environment variable usage
 		// Don't run in parallel as environment variables are shared
 		// Disable kagent integration
 		os.Setenv("KAGENT_INTEGRATION_ENABLED", "false")
