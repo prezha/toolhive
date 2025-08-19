@@ -53,6 +53,10 @@ spec:
             value: "{{ .Values.operator.proxyHost }}"
           - name: KAGENT_INTEGRATION_ENABLED
             value: "{{ .Values.kagentIntegration.enabled }}"
+          {{- if and .Values.kagentIntegration.enabled .Values.kagentIntegration.apiVersion }}
+          - name: KAGENT_API_VERSION
+            value: "{{ .Values.kagentIntegration.apiVersion }}"
+          {{- end }}
           {{- if .Values.operator.env }}
             {{- toYaml .Values.operator.env | nindent 12 }}
           {{- end }}
