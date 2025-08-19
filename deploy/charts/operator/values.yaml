@@ -176,3 +176,8 @@ operator:
 
   # -- Affinity settings for the operator pod
   affinity: {}
+
+# -- Kagent integration configuration
+kagentIntegration:
+  # -- Enable kagent integration to create kagent MCPServer resources
+  enabled: false

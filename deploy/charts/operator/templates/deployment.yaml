@@ -51,6 +51,8 @@ spec:
             value: "{{ .Values.operator.toolhiveRunnerImage }}"
           - name: TOOLHIVE_PROXY_HOST
             value: "{{ .Values.operator.proxyHost }}"
+          - name: KAGENT_INTEGRATION_ENABLED
+            value: "{{ .Values.kagentIntegration.enabled }}"
           {{- if .Values.operator.env }}
             {{- toYaml .Values.operator.env | nindent 12 }}
           {{- end }}
