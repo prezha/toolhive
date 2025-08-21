@@ -204,15 +204,18 @@ func (r *Runner) Run(ctx context.Context) error {
 	// Update client configurations with the MCP server URL.
 	// Note that this function checks the configuration to determine which
 	// clients should be updated, if any.
-	clientManager, err := client.NewManager(ctx)
-	if err != nil {
-		logger.Warnf("Warning: Failed to create client manager: %v", err)
-	} else {
-		transportType := labels.GetTransportType(r.Config.ContainerLabels)
-		serverURL := transport.GenerateMCPServerURL(transportType, "localhost", r.Config.Port, r.Config.ContainerName)
+	// Only create client manager for local development, not in Kubernetes contexts
+	if !rt.IsKubernetesRuntime() {
+		clientManager, err := client.NewManager(ctx)
+		if err != nil {
+			logger.Warnf("Warning: Failed to create client manager: %v", err)
+		} else {
+			transportType := labels.GetTransportType(r.Config.ContainerLabels)
+			serverURL := transport.GenerateMCPServerURL(transportType, "localhost", r.Config.Port, r.Config.ContainerName)
 
-		if err := clientManager.AddServerToClients(ctx, r.Config.ContainerName, serverURL, transportType, r.Config.Group); err != nil {
-			logger.Warnf("Warning: Failed to add server to client configurations: %v", err)
+			if err := clientManager.AddServerToClients(ctx, r.Config.ContainerName, serverURL, transportType, r.Config.Group); err != nil {
+				logger.Warnf("Warning: Failed to add server to client configurations: %v", err)
+			}
 		}
 	}
 
