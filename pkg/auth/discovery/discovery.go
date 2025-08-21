@@ -9,7 +9,10 @@ package discovery
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"strings"
@@ -30,13 +33,18 @@ const (
 	RetryBaseDelay           = 2 * time.Second
 )
 
-// AuthInfo contains authentication information extracted from WWW-Authenticate header
+// AuthInfo contains authentication information extracted from WWW-Authenticate header or RFC-9728 discovery
 type AuthInfo struct {
 	Realm            string
 	Type             string
 	ResourceMetadata string
 	Error            string
 	ErrorDescription string
+	// RFC-9728 specific fields
+	AuthorizationServers   []string
+	BearerMethodsSupported []string
+	JWKSURI                string
+	ScopesSupported        []string
 }
 
 // Config holds configuration for authentication discovery
@@ -45,6 +53,7 @@ type Config struct {
 	TLSHandshakeTimeout   time.Duration
 	ResponseHeaderTimeout time.Duration
 	EnablePOSTDetection   bool // Whether to try POST requests for detection
+	EnableRFC9728         bool // Whether to try RFC-9728 discovery first
 }
 
 // DefaultDiscoveryConfig returns a default discovery configuration
@@ -54,6 +63,7 @@ func DefaultDiscoveryConfig() *Config {
 		TLSHandshakeTimeout:   5 * time.Second,
 		ResponseHeaderTimeout: 5 * time.Second,
 		EnablePOSTDetection:   true,
+		EnableRFC9728:         true,
 	}
 }
 
@@ -67,7 +77,7 @@ func DetectAuthenticationFromServer(ctx context.Context, targetURI string, confi
 	detectCtx, cancel := context.WithTimeout(ctx, config.Timeout)
 	defer cancel()
 
-	// Make a test request to the target server to see if it returns WWW-Authenticate
+	// Create HTTP client
 	client := &http.Client{
 		Timeout: config.Timeout,
 		Transport: &http.Transport{
@@ -76,6 +86,20 @@ func DetectAuthenticationFromServer(ctx context.Context, targetURI string, confi
 		},
 	}
 
+	// First try RFC-9728 discovery if enabled
+	if config.EnableRFC9728 {
+		authInfo, err := detectAuthenticationRFC9728(detectCtx, client, targetURI)
+		if err != nil {
+			logger.Debugf("RFC-9728 discovery failed for %s: %v", targetURI, err)
+			// Don't return error here, fall back to WWW-Authenticate method
+		} else if authInfo != nil {
+			logger.Debugf("RFC-9728 discovery successful for %s", targetURI)
+			return authInfo, nil
+		}
+		// If RFC-9728 returned nil (not supported), continue to fallback methods
+	}
+
+	// Fallback to WWW-Authenticate detection methods
 	// First try a GET request
 	authInfo, err := detectAuthWithRequest(detectCtx, client, targetURI, http.MethodGet, nil)
 	if err != nil {
@@ -214,6 +238,98 @@ func ExtractParameter(params, paramName string) string {
 		}
 	}
 	return ""
+}
+
+// RFC9728AuthInfo represents the structure returned by RFC-9728 OAuth Protected Resource metadata endpoint
+type RFC9728AuthInfo struct {
+	Resource               string   `json:"resource"`
+	AuthorizationServers   []string `json:"authorization_servers"`
+	BearerMethodsSupported []string `json:"bearer_methods_supported"`
+	JWKSURI                string   `json:"jwks_uri"`
+	ScopesSupported        []string `json:"scopes_supported"`
+}
+
+// detectAuthenticationRFC9728 attempts to detect authentication requirements using RFC-9728
+func detectAuthenticationRFC9728(
+	ctx context.Context,
+	client *http.Client,
+	targetURI string,
+) (*AuthInfo, error) {
+	// Parse the target URI to construct the discovery endpoint
+	parsedURL, err := url.Parse(targetURI)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse target URI: %w", err)
+	}
+
+	// Construct the RFC-9728 discovery endpoint
+	discoveryURL := fmt.Sprintf("%s://%s/.well-known/oauth-protected-resource", parsedURL.Scheme, parsedURL.Host)
+	
+	// Create GET request to the discovery endpoint
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, discoveryURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create RFC-9728 discovery request: %w", err)
+	}
+	
+	// Set Accept header for JSON response
+	req.Header.Set("Accept", "application/json")
+	
+	// Make the discovery request
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make RFC-9728 discovery request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Check if discovery is not supported (404)
+	if resp.StatusCode == http.StatusNotFound {
+		logger.Debugf("RFC-9728 discovery not supported for %s (404)", targetURI)
+		return nil, nil // Not an error, just not supported
+	}
+
+	// Check for other error status codes
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("RFC-9728 discovery failed with status %d", resp.StatusCode)
+	}
+
+	// Check content type
+	contentType := resp.Header.Get("Content-Type")
+	if contentType != "" {
+		mediaType, _, err := mime.ParseMediaType(contentType)
+		if err != nil {
+			logger.Debugf("Failed to parse content type %s: %v", contentType, err)
+		} else if mediaType != "application/json" {
+			return nil, fmt.Errorf("RFC-9728 discovery returned unexpected content type: %s", mediaType)
+		}
+	}
+
+	// Read and parse the JSON response
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read RFC-9728 discovery response: %w", err)
+	}
+
+	var rfc9728Info RFC9728AuthInfo
+	if err := json.Unmarshal(body, &rfc9728Info); err != nil {
+		return nil, fmt.Errorf("failed to parse RFC-9728 discovery JSON: %w", err)
+	}
+
+	// Convert RFC-9728 response to AuthInfo
+	authInfo := &AuthInfo{
+		Type:                   "OAuth",
+		AuthorizationServers:   rfc9728Info.AuthorizationServers,
+		BearerMethodsSupported: rfc9728Info.BearerMethodsSupported,
+		JWKSURI:                rfc9728Info.JWKSURI,
+		ScopesSupported:        rfc9728Info.ScopesSupported,
+		ResourceMetadata:       string(body), // Store the raw JSON for reference
+	}
+
+	// Extract realm from the first authorization server if available
+	if len(rfc9728Info.AuthorizationServers) > 0 {
+		authInfo.Realm = rfc9728Info.AuthorizationServers[0]
+	}
+
+	logger.Debugf("RFC-9728 discovery successful for %s", targetURI)
+	return authInfo, nil
 }
 
 // DeriveIssuerFromURL attempts to derive the OAuth issuer from the remote URL using general patterns
