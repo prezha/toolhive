@@ -18,3 +18,16 @@ spec:
     requests:
       cpu: "50m"
       memory: "64Mi"
+  openTelemetry:
+    # Point to our OpenTelemetry Collector
+    endpoint: http://otel-collector.monitoring.svc.cluster.local:4318
+    serviceName: mcp-fetch-server
+    samplingRate: "1.0"  # 100% sampling for testing
+    headers:
+      - "x-test-header=toolhive-demo"
+    insecure: true  # Using HTTP collector endpoint
+    enablePrometheusMetricsPath: true  # Enable /metrics endpoint
+    environmentVariables:
+      - "NODE_ENV"
+      - "HOSTNAME"
+      - "SERVICE_VERSION"

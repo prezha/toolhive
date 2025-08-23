@@ -1,3 +1,7 @@
+# Claude.md
+
+This document will explain all necessary information for Claude to understand the ToolHive Operator.
+
 - CRDs are in cmd/thv-operator/api/v1alpha1/mcpserver_types.go
 - After modifying the CRDs, the following changes need to be done:
     - `task operator-generate`, `task operator-manifests` and `task crdref-gen`.

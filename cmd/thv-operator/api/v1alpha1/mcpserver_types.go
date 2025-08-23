@@ -79,6 +79,10 @@ type MCPServerSpec struct {
 	// ToolsFilter is the filter on tools applied to the MCP server
 	// +optional
 	ToolsFilter []string `json:"tools,omitempty"`
+
+	// OpenTelemetry defines OpenTelemetry configuration for the MCP server
+	// +optional
+	OpenTelemetry *OpenTelemetryConfig `json:"openTelemetry,omitempty"`
 }
 
 // ResourceOverrides defines overrides for annotations and labels on created resources
@@ -433,6 +437,44 @@ type InlineAuthzConfig struct {
 	// +kubebuilder:default="[]"
 	// +optional
 	EntitiesJSON string `json:"entitiesJson,omitempty"`
+}
+
+// OpenTelemetryConfig defines OpenTelemetry configuration for the MCP server
+type OpenTelemetryConfig struct {
+	// Endpoint is the OTLP endpoint URL for tracing and metrics
+	// +optional
+	Endpoint string `json:"endpoint,omitempty"`
+
+	// ServiceName is the service name for telemetry
+	// If not specified, defaults to the MCPServer name
+	// +optional
+	ServiceName string `json:"serviceName,omitempty"`
+
+	// SamplingRate is the trace sampling rate as a string (between "0.0" and "1.0")
+	// +kubebuilder:validation:Pattern=^(0(\.\d+)?|1(\.0+)?)$
+	// +optional
+	SamplingRate *string `json:"samplingRate,omitempty"`
+
+	// Headers contains authentication headers for the OTLP endpoint
+	// Specified as key=value pairs
+	// +optional
+	Headers []string `json:"headers,omitempty"`
+
+	// Insecure indicates whether to use HTTP instead of HTTPS for the OTLP endpoint
+	// +kubebuilder:default=false
+	// +optional
+	Insecure bool `json:"insecure,omitempty"`
+
+	// EnablePrometheusMetricsPath controls whether to expose Prometheus-style /metrics endpoint
+	// The metrics are served on the main transport port at /metrics
+	// +kubebuilder:default=false
+	// +optional
+	EnablePrometheusMetricsPath bool `json:"enablePrometheusMetricsPath,omitempty"`
+
+	// EnvironmentVariables is a list of environment variable names that should be
+	// included in telemetry spans as attributes
+	// +optional
+	EnvironmentVariables []string `json:"environmentVariables,omitempty"`
 }
 
 // MCPServerStatus defines the observed state of MCPServer

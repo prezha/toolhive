@@ -244,6 +244,50 @@ spec:
                 required:
                 - type
                 type: object
+              openTelemetry:
+                description: OpenTelemetry defines OpenTelemetry configuration for
+                  the MCP server
+                properties:
+                  enablePrometheusMetricsPath:
+                    default: false
+                    description: |-
+                      EnablePrometheusMetricsPath controls whether to expose Prometheus-style /metrics endpoint
+                      The metrics are served on the main transport port at /metrics
+                    type: boolean
+                  endpoint:
+                    description: Endpoint is the OTLP endpoint URL for tracing and
+                      metrics
+                    type: string
+                  environmentVariables:
+                    description: |-
+                      EnvironmentVariables is a list of environment variable names that should be
+                      included in telemetry spans as attributes
+                    items:
+                      type: string
+                    type: array
+                  headers:
+                    description: |-
+                      Headers contains authentication headers for the OTLP endpoint
+                      Specified as key=value pairs
+                    items:
+                      type: string
+                    type: array
+                  insecure:
+                    default: false
+                    description: Insecure indicates whether to use HTTP instead of
+                      HTTPS for the OTLP endpoint
+                    type: boolean
+                  samplingRate:
+                    description: SamplingRate is the trace sampling rate as a string
+                      (between "0.0" and "1.0")
+                    pattern: ^(0(\.\d+)?|1(\.0+)?)$
+                    type: string
+                  serviceName:
+                    description: |-
+                      ServiceName is the service name for telemetry
+                      If not specified, defaults to the MCPServer name
+                    type: string
+                type: object
               permissionProfile:
                 description: PermissionProfile defines the permission profile to use
                 properties:
