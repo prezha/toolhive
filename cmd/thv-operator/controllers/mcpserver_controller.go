@@ -1511,8 +1511,8 @@ func (*MCPServerReconciler) generateOpenTelemetryArgs(m *mcpv1alpha1.MCPServer) 
 		args = append(args, "--otel-insecure")
 	}
 	
-	// Add Prometheus metrics path flag
-	if otel.EnablePrometheusMetricsPath {
+	// Add Prometheus metrics path flag from metrics configuration
+	if otel.Metrics != nil && otel.Metrics.EnablePrometheusMetricsPath {
 		args = append(args, "--otel-enable-prometheus-metrics-path")
 	}
 	
@@ -1537,31 +1537,11 @@ func (*MCPServerReconciler) generateOpenTelemetryEnvVars(m *mcpv1alpha1.MCPServe
 		})
 	}
 	
-	// Add sampling rate
-	if otel.SamplingRate != nil {
-		envVars = append(envVars, corev1.EnvVar{
-			Name:  "OTEL_TRACES_SAMPLER_ARG",
-			Value: *otel.SamplingRate,
-		})
-		envVars = append(envVars, corev1.EnvVar{
-			Name:  "OTEL_TRACES_SAMPLER",
-			Value: "traceidratio",
-		})
-	}
-	
 	// Add OTEL headers as environment variable (comma-separated for standard format)
 	if len(otel.Headers) > 0 {
 		envVars = append(envVars, corev1.EnvVar{
 			Name:  "OTEL_EXPORTER_OTLP_HEADERS",
 			Value: strings.Join(otel.Headers, ","),
-		})
-	}
-	
-	// Add environment variables to include in spans
-	if len(otel.EnvironmentVariables) > 0 {
-		envVars = append(envVars, corev1.EnvVar{
-			Name:  "TOOLHIVE_OTEL_ENV_VARS",
-			Value: strings.Join(otel.EnvironmentVariables, ","),
 		})
 	}
 	
@@ -1767,8 +1747,8 @@ func equalOpenTelemetryArgs(spec *mcpv1alpha1.OpenTelemetryConfig, args []string
 		return false
 	}
 
-	// Check Prometheus metrics path flag
-	expectedPrometheus := spec.EnablePrometheusMetricsPath
+	// Check Prometheus metrics path flag from metrics configuration
+	expectedPrometheus := spec.Metrics != nil && spec.Metrics.EnablePrometheusMetricsPath
 	foundPrometheus := false
 	for _, arg := range args {
 		if arg == "--otel-enable-prometheus-metrics-path" {

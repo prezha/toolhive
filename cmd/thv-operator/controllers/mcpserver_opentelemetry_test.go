@@ -23,7 +23,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	"k8s.io/utils/ptr"
 
 	mcpv1alpha1 "github.com/stacklok/toolhive/cmd/thv-operator/api/v1alpha1"
 )
@@ -61,7 +60,9 @@ func TestOpenTelemetryArgs(t *testing.T) {
 		{
 			name: "OpenTelemetry with Prometheus metrics",
 			otelConfig: &mcpv1alpha1.OpenTelemetryConfig{
-				EnablePrometheusMetricsPath: true,
+				Metrics: &mcpv1alpha1.OpenTelemetryMetricsConfig{
+					EnablePrometheusMetricsPath: true,
+				},
 			},
 			expectedArgs: []string{
 				"--otel-enable-prometheus-metrics-path",
@@ -70,10 +71,12 @@ func TestOpenTelemetryArgs(t *testing.T) {
 		{
 			name: "complete OpenTelemetry config",
 			otelConfig: &mcpv1alpha1.OpenTelemetryConfig{
-				ServiceName:                 "complete-service",
-				Headers:                     []string{"authorization=bearer token123"},
-				Insecure:                    false,
-				EnablePrometheusMetricsPath: true,
+				ServiceName: "complete-service",
+				Headers:     []string{"authorization=bearer token123"},
+				Insecure:    false,
+				Metrics: &mcpv1alpha1.OpenTelemetryMetricsConfig{
+					EnablePrometheusMetricsPath: true,
+				},
 			},
 			expectedArgs: []string{
 				"--otel-service-name=complete-service",
@@ -136,16 +139,6 @@ func TestOpenTelemetryEnvVars(t *testing.T) {
 			},
 		},
 		{
-			name: "OpenTelemetry with sampling rate",
-			otelConfig: &mcpv1alpha1.OpenTelemetryConfig{
-				SamplingRate: ptr.To("0.1"),
-			},
-			expectedEnv: []corev1.EnvVar{
-				{Name: "OTEL_TRACES_SAMPLER_ARG", Value: "0.1"},
-				{Name: "OTEL_TRACES_SAMPLER", Value: "traceidratio"},
-			},
-		},
-		{
 			name: "OpenTelemetry with headers",
 			otelConfig: &mcpv1alpha1.OpenTelemetryConfig{
 				Headers: []string{"x-honeycomb-team=apikey123", "x-tenant=tenant1"},
@@ -155,28 +148,17 @@ func TestOpenTelemetryEnvVars(t *testing.T) {
 			},
 		},
 		{
-			name: "OpenTelemetry with environment variables",
-			otelConfig: &mcpv1alpha1.OpenTelemetryConfig{
-				EnvironmentVariables: []string{"NODE_ENV", "SERVICE_VERSION", "DEPLOYMENT_ENV"},
-			},
-			expectedEnv: []corev1.EnvVar{
-				{Name: "TOOLHIVE_OTEL_ENV_VARS", Value: "NODE_ENV,SERVICE_VERSION,DEPLOYMENT_ENV"},
-			},
-		},
-		{
 			name: "complete OpenTelemetry config",
 			otelConfig: &mcpv1alpha1.OpenTelemetryConfig{
-				Endpoint:             "https://api.honeycomb.io",
-				SamplingRate:         ptr.To("0.5"),
-				Headers:              []string{"x-honeycomb-team=myteam"},
-				EnvironmentVariables: []string{"NODE_ENV", "VERSION"},
+				Endpoint: "https://api.honeycomb.io",
+				Headers:  []string{"x-honeycomb-team=myteam"},
 			},
 			expectedEnv: []corev1.EnvVar{
 				{Name: "OTEL_EXPORTER_OTLP_ENDPOINT", Value: "https://api.honeycomb.io"},
 				{Name: "OTEL_TRACES_SAMPLER_ARG", Value: "0.5"},
 				{Name: "OTEL_TRACES_SAMPLER", Value: "traceidratio"},
-				{Name: "OTEL_EXPORTER_OTLP_HEADERS", Value: "x-honeycomb-team=myteam"},
 				{Name: "TOOLHIVE_OTEL_ENV_VARS", Value: "NODE_ENV,VERSION"},
+				{Name: "OTEL_EXPORTER_OTLP_HEADERS", Value: "x-honeycomb-team=myteam"},
 			},
 		},
 	}
@@ -280,7 +262,9 @@ func TestEqualOpenTelemetryArgs(t *testing.T) {
 		{
 			name: "matching prometheus flag",
 			spec: &mcpv1alpha1.OpenTelemetryConfig{
-				EnablePrometheusMetricsPath: true,
+				Metrics: &mcpv1alpha1.OpenTelemetryMetricsConfig{
+					EnablePrometheusMetricsPath: true,
+				},
 			},
 			args:     []string{"--otel-enable-prometheus-metrics-path"},
 			expected: true,

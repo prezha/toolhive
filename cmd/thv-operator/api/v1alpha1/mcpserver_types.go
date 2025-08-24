@@ -450,11 +450,6 @@ type OpenTelemetryConfig struct {
 	// +optional
 	ServiceName string `json:"serviceName,omitempty"`
 
-	// SamplingRate is the trace sampling rate as a string (between "0.0" and "1.0")
-	// +kubebuilder:validation:Pattern=^(0(\.\d+)?|1(\.0+)?)$
-	// +optional
-	SamplingRate *string `json:"samplingRate,omitempty"`
-
 	// Headers contains authentication headers for the OTLP endpoint
 	// Specified as key=value pairs
 	// +optional
@@ -465,16 +460,18 @@ type OpenTelemetryConfig struct {
 	// +optional
 	Insecure bool `json:"insecure,omitempty"`
 
+	// Metrics defines OpenTelemetry metrics configuration
+	// +optional
+	Metrics *OpenTelemetryMetricsConfig `json:"metrics,omitempty"`
+}
+
+// OpenTelemetryMetricsConfig defines OpenTelemetry metrics configuration
+type OpenTelemetryMetricsConfig struct {
 	// EnablePrometheusMetricsPath controls whether to expose Prometheus-style /metrics endpoint
 	// The metrics are served on the main transport port at /metrics
 	// +kubebuilder:default=false
 	// +optional
 	EnablePrometheusMetricsPath bool `json:"enablePrometheusMetricsPath,omitempty"`
-
-	// EnvironmentVariables is a list of environment variable names that should be
-	// included in telemetry spans as attributes
-	// +optional
-	EnvironmentVariables []string `json:"environmentVariables,omitempty"`
 }
 
 // MCPServerStatus defines the observed state of MCPServer
